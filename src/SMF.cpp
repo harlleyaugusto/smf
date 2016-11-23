@@ -825,15 +825,161 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	}
 }
 
-typedef struct {
-	unsigned int id;
-	unsigned int count;
+void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
+		vector<vector<double> > &p, vector<vector<double> > &q) {
 
-} ItemDistribution;
+	cout << "BEGIN MF" << endl;
 
-bool item_dist_cmp(const ItemDistribution& a, const ItemDistribution& b) {
-	return a.count > b.count;
+	const unsigned int SIZE = trainingset.size();
+
+	vector<unsigned int> training_indexes(SIZE, 0);
+	for (unsigned int i = 0; i < SIZE; ++i) {
+		training_indexes[i] = i;
+	}
+
+	double threshold = 0.0;
+	vector<pair_similarity> neighborhood_user;
+	vector<unsigned int> pair_indexes_user;
+
+	vector<pair_similarity> neighborhood_item;
+	vector<unsigned int> pair_indexes_item;
+
+	if (MF_SIMILARITY_USER) {
+
+		int count = 0;
+		for (unsigned int u = 0; u < users.size(); ++u) {
+			for (unsigned v = 0; v < users.size(); ++v) {
+				if (u != v) {
+					double value = calc_similarity_user(u, v,
+							MF_SIMILARITY_USER);
+					if (abs(value) > threshold) {
+						pair_similarity pair;
+						pair.u = u;
+						pair.v = v;
+						pair.s = value;
+						//pair.weight = calc_similarity_user(u, v, INTERSECTION) + 1;
+
+						pair.weight = 1;
+
+						neighborhood_user.push_back(pair);
+						pair_indexes_user.push_back(count++);
+					}
+
+				}
+
+			}
+		}
+	}
+
+	if (MF_SIMILARITY_ITEM) {
+		//cout << "ITEM" << endl;
+		int count = 0;
+		for (unsigned int u = 0; u < items.size(); ++u) {
+			for (unsigned v = 0; v < items.size(); ++v) {
+
+				if (u != v) {
+					double value = calc_similarity_item(u, v,
+							MF_SIMILARITY_ITEM);
+					if (abs(value) > threshold) {
+						pair_similarity pair;
+						pair.u = u;
+						pair.v = v;
+						pair.s = value;
+						//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
+						pair.weight = 1;
+
+						neighborhood_item.push_back(pair);
+						pair_indexes_item.push_back(count++);
+					}
+
+				}
+
+			}
+		}
+		//cin.get();
+	}
+
+	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
+		cout << it << endl;
+		random_shuffle(training_indexes.begin(), training_indexes.end());
+
+		for (unsigned int i = 0; i < SIZE; ++i) {
+			Vote *v = trainingset[training_indexes[i]];
+
+			unsigned int u_id = v->userId;
+			unsigned int i_id = v->itemId;
+
+			double r = v->rating;
+			double err = (r - dot_product(p[u_id], q[i_id]));
+
+			if (MF_NORMALIZE) {
+				r = (v->rating - MIN_RATING) / DELTA_RATING;
+				double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
+				err = (r - sig_p) * sig_p * (1 - sig_p);
+			}
+
+			for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+				p[u_id][k] += MF_ALPHA
+						* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+				q[i_id][k] += MF_ALPHA
+						* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+			}
+		}
+
+		//TODO: asymmetric functionality must be implemented here
+		if (MF_SIMILARITY_USER) {
+
+			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
+			for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
+
+				unsigned int idx = pair_indexes_user[i];
+
+				const unsigned int u = neighborhood_user[idx].u;
+				const unsigned int v = neighborhood_user[idx].v;
+				const double s = neighborhood_user[idx].s;
+				const double w = neighborhood_user[idx].weight;
+
+				double sig_p = dot_product(p[u], p[v]);
+				double err = (s - sig_p);
+				if (MF_NORMALIZE) {
+					sig_p = sigmoid(dot_product(p[u], p[v]));
+					err = (s - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					p[u][k] += MF_ALPHA * (w * err * p[v][k]);
+					p[v][k] += MF_ALPHA * (w * err * p[u][k]);
+				}
+			}
+		}
+
+		if (MF_SIMILARITY_ITEM) {
+
+			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
+			for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
+
+				unsigned int idx = pair_indexes_item[i];
+				const unsigned int u = neighborhood_item[idx].u;
+				const unsigned int v = neighborhood_item[idx].v;
+				const double s = neighborhood_item[idx].s;
+				const double w = neighborhood_item[idx].weight;
+
+				double sig_p = dot_product(q[u], q[v]);
+				double err = (s - sig_p);
+				if (MF_NORMALIZE) {
+					sig_p = sigmoid(dot_product(q[u], q[v]));
+					err = (s - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					q[u][k] += MF_ALPHA * (w * err * q[v][k]);
+					q[v][k] += MF_ALPHA * (w * err * q[u][k]);
+				}
+			}
+		}
+	}
 }
+
 
 void run_matrix_factorization(vector<TestItem> &test,
 		vector<Vote *> &trainingset, const unsigned int fold) {

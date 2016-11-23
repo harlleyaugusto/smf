@@ -651,7 +651,6 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		}
 
 		value = value / items[intersection[i]]->adamic_adar_sum_neighbors;
-
 		break;
 	}
 
@@ -1045,19 +1044,21 @@ void run_matrix_factorization(vector<TestItem> &test,
 	string output_file;
 	switch (MF_ALGORITHM) {
 	case 4: {
-
 		sgd_smf(trainingset, p, q);
-
-		char buffer[250];
-		sprintf(buffer, "%u-%u-%u-%u-%3.5f-%3.5f", MF_NUM_FACTORS,
-				MF_SIMILARITY_USER, MF_SIMILARITY_ITEM, MF_NORMALIZE, MF_LAMBDA,
-				MF_ALPHA);
-
-		output_file = string(buffer);
 		break;
 	}
-
+	case 5: {
+		sgd_smf_asymmetric(trainingset, p, q);
+		break;
 	}
+	}
+
+	char buffer[250];
+	sprintf(buffer, "%u-%u-%u-%u-%3.5f-%3.5f", MF_NUM_FACTORS,
+			MF_SIMILARITY_USER, MF_SIMILARITY_ITEM, MF_NORMALIZE, MF_LAMBDA,
+			MF_ALPHA);
+
+	output_file = string(buffer);
 
 	Experiment exp;
 	unsigned int num_users = 0;

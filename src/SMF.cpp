@@ -30,13 +30,11 @@
 
 #define NONE_SIMILARITY 0
 
-#define USER_PEARSON_SIMILARITY 1
-#define USER_JACCARD_SIMILARITY 2
-#define USER_COSINE_SIMILARITY 3
-
-#define ITEM_PEARSON_SIMILARITY 4
-#define ITEM_JACCARD_SIMILARITY 5
-#define ITEM_COSINE_SIMILARITY 6
+#define PEARSON_SIMILARITY 1
+#define JACCARD_SIMILARITY 2
+#define JACCARD_ASYMMETRIC_SIMILARITY 21
+#define COSINE_SIMILARITY 3
+#define ADAMIC_ADAR_SIMILARIY 4
 
 #define INTERSECTION 100
 
@@ -86,6 +84,8 @@ struct Item {
 	double avg;
 	set<unsigned int> users;
 	vector<Vote *> ratings;
+	double adamic_adar;
+	double adamic_adar_sum_neighbors;
 };
 typedef struct Item Item;
 
@@ -95,6 +95,8 @@ struct User {
 	vector<Vote *> ratings;
 	double avg;
 	double std;
+	double adamic_adar;
+	double adamic_adar_sum_neighbors;
 
 	~User() {
 		for (size_t i = 0; i < ratings.size(); ++i)
@@ -468,6 +470,8 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 	vector<float> p_v;
 	vector<float> q_v;
 
+	vector<unsigned> intersection;
+
 	unsigned int i = 0, j = 0, n = 0;
 	while (i < u.size() && j < v.size()) {
 		if (u[i]->userId < v[j]->userId)
@@ -477,6 +481,8 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 		else {
 			p_v.push_back(u[i]->rating);
 			q_v.push_back(v[j]->rating);
+			intersection.push_back(u[i]->userId);
+
 			++n;
 			++i;
 			++j;
@@ -490,7 +496,7 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 	double value;
 	switch (type) {
-	case ITEM_PEARSON_SIMILARITY: {
+	case PEARSON_SIMILARITY: {
 		// pearson
 		double num = 0;
 		double x_den = 0;
@@ -505,12 +511,16 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 		value = (num / sqrt(x_den * y_den));
 		break;
 	}
-	case ITEM_JACCARD_SIMILARITY: {
+	case JACCARD_SIMILARITY: {
 		// number of intersection
 		value = ((double) p_v.size()) / (u.size() + v.size() - p_v.size());
 		break;
 	}
-	case ITEM_COSINE_SIMILARITY: {
+	case JACCARD_ASYMMETRIC_SIMILARITY: {
+		value = ((double) p_v.size()) / (u.size());
+		break;
+	}
+	case COSINE_SIMILARITY: {
 		// cosine
 		double num = 0;
 		double x_den = vct_norm(p_v);
@@ -522,8 +532,19 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 		break;
 	}
+	case ADAMIC_ADAR_SIMILARIY: {
+		value = 0;
+		for (unsigned i = 0; i < intersection.size(); ++i) {
+			value += users[intersection[i]]->adamic_adar;
+		}
+
+		value = value / users[intersection[i]]->adamic_adar_sum_neighbors;
+
+		break;
+	}
 	case INTERSECTION:
 		value = p_v.size();
+		break;
 	}
 
 	return value;
@@ -560,6 +581,8 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 	vector<float> x_v;
 	vector<float> y_v;
 
+	vector<unsigned> intersection;
+
 	unsigned int i = 0, j = 0;
 	while (i < u->ratings.size() && j < v->ratings.size()) {
 		if (u->ratings[i]->itemId < v->ratings[j]->itemId)
@@ -569,6 +592,8 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		else {
 			x_v.push_back(u->ratings[i]->rating);
 			y_v.push_back(v->ratings[j]->rating);
+
+			intersection.push_back(u->ratings[i]->itemId);
 			++i;
 			++j;
 		}
@@ -581,7 +606,7 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 	double value;
 
 	switch (type) {
-	case USER_PEARSON_SIMILARITY: {
+	case PEARSON_SIMILARITY: {
 		// pearson
 		double num = 0;
 		double x_den = 0;
@@ -596,13 +621,17 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		value = (num / sqrt(x_den * y_den));
 		break;
 	}
-	case USER_JACCARD_SIMILARITY: {
+	case JACCARD_SIMILARITY: {
 		// number of intersection
 		value = ((double) x_v.size())
 				/ (u->ratings.size() + v->ratings.size() - x_v.size());
 		break;
 	}
-	case USER_COSINE_SIMILARITY: {
+	case JACCARD_ASYMMETRIC_SIMILARITY: {
+		value = ((double) x_v.size()) / (u->ratings.size());
+		break;
+	}
+	case COSINE_SIMILARITY: {
 		// cosine
 		double num = 0;
 		double x_den = vct_norm(x_v);
@@ -615,8 +644,20 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		break;
 	}
 
+	case ADAMIC_ADAR_SIMILARIY: {
+		value = 0;
+		for (unsigned i = 0; i < intersection.size(); ++i) {
+			value += items[intersection[i]]->adamic_adar;
+		}
+
+		value = value / items[intersection[i]]->adamic_adar_sum_neighbors;
+
+		break;
+	}
+
 	case INTERSECTION:
 		value = x_v.size();
+		break;
 	}
 
 	return value;
@@ -980,7 +1021,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 	}
 }
 
-
 void run_matrix_factorization(vector<TestItem> &test,
 		vector<Vote *> &trainingset, const unsigned int fold) {
 
@@ -1186,10 +1226,30 @@ void clear() {
 
 }
 
+void calcAdamicAdar() {
+	for (unsigned j = 0; j < users.size(); ++j) {
+		User *u = users[j];
+
+		for (unsigned k = 0; k < u->ratings.size(); ++k) {
+			u->adamic_adar_sum_neighbors +=
+					items[u->ratings[k]->itemId]->adamic_adar;
+		}
+	}
+
+	for (unsigned j = 0; j < items.size(); ++j) {
+		Item *i = items[j];
+		for (unsigned k = 0; k < i->ratings.size(); ++k) {
+			i->adamic_adar_sum_neighbors +=
+					users[i->ratings[k]->userId]->adamic_adar;
+		}
+	}
+}
+
 // scales user rating so that 1 if above user average or 0 otherwise
 void scaleRating(User *u) {
 	u->avg = 0;
 	u->std = 0;
+	u->adamic_adar = 1 / log(u->ratings.size());
 
 	for (size_t i = 0; i < u->ratings.size(); ++i) {
 		u->avg += u->ratings[i]->rating;
@@ -1212,6 +1272,7 @@ void scaleRating(User *u) {
 
 void scaleItem(Item *u) {
 	u->avg = 0;
+	u->adamic_adar = 1 / log(u->ratings.size());
 
 	for (size_t i = 0; i < u->ratings.size(); ++i) {
 		u->avg += u->ratings[i]->rating;
@@ -1299,6 +1360,8 @@ void kfold(char algorithm) {
 
 			sort(p->ratings.begin(), p->ratings.end(), voteComparator2);
 		}
+
+		calcAdamicAdar();
 
 		for (map<unsigned int, vector<Review*> >::iterator it2 = test.begin();
 				it2 != test.end(); ++it2) {

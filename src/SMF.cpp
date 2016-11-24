@@ -32,7 +32,7 @@
 
 #define PEARSON_SIMILARITY 1
 #define JACCARD_SIMILARITY 2
-#define JACCARD_ASYMMETRIC_SIMILARITY 21
+#define ASYMMETRIC_JACCARD_SIMILARITY 21
 #define COSINE_SIMILARITY 3
 #define ADAMIC_ADAR_SIMILARIY 4
 
@@ -472,22 +472,24 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 	vector<unsigned> intersection;
 
-	unsigned int i = 0, j = 0, n = 0;
-	while (i < u.size() && j < v.size()) {
-		if (u[i]->userId < v[j]->userId)
-			i++;
-		else if (v[j]->userId < u[i]->userId)
-			j++;
-		else {
-			p_v.push_back(u[i]->rating);
-			q_v.push_back(v[j]->rating);
-			intersection.push_back(u[i]->userId);
+	{
+		unsigned int i = 0, j = 0, n = 0;
+		while (i < u.size() && j < v.size()) {
+			if (u[i]->userId < v[j]->userId)
+				i++;
+			else if (v[j]->userId < u[i]->userId)
+				j++;
+			else {
+				p_v.push_back(u[i]->rating);
+				q_v.push_back(v[j]->rating);
+				intersection.push_back(u[i]->userId);
 
-			++n;
-			++i;
-			++j;
+				++n;
+				++i;
+				++j;
+			}
+
 		}
-
 	}
 
 	if (p_v.size() == 0) {
@@ -516,10 +518,7 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 		value = ((double) p_v.size()) / (u.size() + v.size() - p_v.size());
 		break;
 	}
-	case JACCARD_ASYMMETRIC_SIMILARITY: {
-		value = ((double) p_v.size()) / (u.size());
-		break;
-	}
+
 	case COSINE_SIMILARITY: {
 		// cosine
 		double num = 0;
@@ -532,13 +531,18 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 		break;
 	}
+
+	case ASYMMETRIC_JACCARD_SIMILARITY: {
+		value = ((double) p_v.size());
+		break;
+	}
 	case ADAMIC_ADAR_SIMILARIY: {
 		value = 0;
 		for (unsigned i = 0; i < intersection.size(); ++i) {
 			value += users[intersection[i]]->adamic_adar;
 		}
 
-		value = value / users[intersection[i]]->adamic_adar_sum_neighbors;
+//		value /= items[p]->adamic_adar_sum_neighbors;
 
 		break;
 	}
@@ -627,10 +631,7 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 				/ (u->ratings.size() + v->ratings.size() - x_v.size());
 		break;
 	}
-	case JACCARD_ASYMMETRIC_SIMILARITY: {
-		value = ((double) x_v.size()) / (u->ratings.size());
-		break;
-	}
+
 	case COSINE_SIMILARITY: {
 		// cosine
 		double num = 0;
@@ -644,13 +645,15 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		break;
 	}
 
+	case ASYMMETRIC_JACCARD_SIMILARITY: {
+		value = ((double) x_v.size());
+		break;
+	}
 	case ADAMIC_ADAR_SIMILARIY: {
-		value = 0;
+		value = 0.0;
 		for (unsigned i = 0; i < intersection.size(); ++i) {
 			value += items[intersection[i]]->adamic_adar;
 		}
-
-		value = value / items[intersection[i]]->adamic_adar_sum_neighbors;
 		break;
 	}
 
@@ -866,7 +869,8 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 }
 
 void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
-		vector<vector<double> > &p, vector<vector<double> > &q) {
+		vector<vector<double> > &p, vector<vector<double> > &q,
+		vector<vector<double> > &y, vector<vector<double> > &z) {
 
 	cout << "BEGIN MF" << endl;
 
@@ -888,25 +892,56 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 		int count = 0;
 		for (unsigned int u = 0; u < users.size(); ++u) {
-			for (unsigned v = 0; v < users.size(); ++v) {
-				if (u != v) {
-					double value = calc_similarity_user(u, v,
-							MF_SIMILARITY_USER);
-					if (abs(value) > threshold) {
-						pair_similarity pair;
-						pair.u = u;
-						pair.v = v;
-						pair.s = value;
-						//pair.weight = calc_similarity_user(u, v, INTERSECTION) + 1;
+			for (unsigned v = u + 1; v < users.size(); ++v) {
+				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
 
-						pair.weight = 1;
+				{
+					// (u,v)
+					pair_similarity pair;
+					pair.u = u;
+					pair.v = v;
+					pair.s = value;
+					pair.weight = 1;
 
+					switch (MF_SIMILARITY_USER) {
+					case ASYMMETRIC_JACCARD_SIMILARITY:
+						pair.s /= users[u]->ratings.size();
+						break;
+
+					case ADAMIC_ADAR_SIMILARIY:
+						pair.s /= users[u]->adamic_adar_sum_neighbors;
+						break;
+					}
+
+					if (abs(pair.s) > threshold) {
 						neighborhood_user.push_back(pair);
 						pair_indexes_user.push_back(count++);
 					}
-
 				}
 
+				{
+					// (v,u)
+					pair_similarity pair;
+					pair.u = v;
+					pair.v = u;
+					pair.s = value;
+					pair.weight = 1;
+
+					switch (MF_SIMILARITY_USER) {
+					case ASYMMETRIC_JACCARD_SIMILARITY:
+						pair.s /= users[v]->ratings.size();
+						break;
+
+					case ADAMIC_ADAR_SIMILARIY:
+						pair.s /= users[v]->adamic_adar_sum_neighbors;
+						break;
+					}
+
+					if (abs(pair.s) > threshold) {
+						neighborhood_user.push_back(pair);
+						pair_indexes_user.push_back(count++);
+					}
+				}
 			}
 		}
 	}
@@ -915,28 +950,59 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		//cout << "ITEM" << endl;
 		int count = 0;
 		for (unsigned int u = 0; u < items.size(); ++u) {
-			for (unsigned v = 0; v < items.size(); ++v) {
+			for (unsigned v = u + 1; v < items.size(); ++v) {
 
-				if (u != v) {
-					double value = calc_similarity_item(u, v,
-							MF_SIMILARITY_ITEM);
-					if (abs(value) > threshold) {
-						pair_similarity pair;
-						pair.u = u;
-						pair.v = v;
-						pair.s = value;
-						//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
-						pair.weight = 1;
+				double value = calc_similarity_item(u, v, MF_SIMILARITY_ITEM);
 
+				{
+					// (u,v)
+					pair_similarity pair;
+					pair.u = u;
+					pair.v = v;
+					pair.s = value;
+					//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
+					pair.weight = 1;
+
+					switch (MF_SIMILARITY_ITEM) {
+					case ASYMMETRIC_JACCARD_SIMILARITY:
+						pair.s /= items[u]->ratings.size();
+						break;
+
+					case ADAMIC_ADAR_SIMILARIY:
+						pair.s /= items[u]->adamic_adar_sum_neighbors;
+						break;
+					}
+					if (abs(pair.s) > threshold) {
+						neighborhood_item.push_back(pair);
+						pair_indexes_item.push_back(count++);
+
+					}
+				}
+				{
+					// (v,u)
+					pair_similarity pair;
+					pair.u = v;
+					pair.v = u;
+					pair.s = value;
+					//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
+					pair.weight = 1;
+
+					switch (MF_SIMILARITY_ITEM) {
+					case ASYMMETRIC_JACCARD_SIMILARITY:
+						pair.s /= items[v]->ratings.size();
+						break;
+
+					case ADAMIC_ADAR_SIMILARIY:
+						pair.s /= items[v]->adamic_adar_sum_neighbors;
+						break;
+					}
+					if (abs(pair.s) > threshold) {
 						neighborhood_item.push_back(pair);
 						pair_indexes_item.push_back(count++);
 					}
-
 				}
-
 			}
 		}
-		//cin.get();
 	}
 
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
@@ -1027,17 +1093,25 @@ void run_matrix_factorization(vector<TestItem> &test,
 
 	vector<vector<double> > p(users.size(),
 			vector<double>(MF_NUM_FACTORS, 0.0));
+	vector<vector<double> > y(users.size(),
+			vector<double>(MF_NUM_FACTORS, 0.0));
+
 	for (unsigned int i = 0; i < users.size(); ++i) {
 		for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 			p[i][k] = distribution(generator);
+			y[i][k] = distribution(generator);
 		}
 	}
 
 	vector<vector<double> > q(items.size(),
 			vector<double>(MF_NUM_FACTORS, 0.0));
+	vector<vector<double> > z(items.size(),
+			vector<double>(MF_NUM_FACTORS, 0.0));
+
 	for (unsigned int i = 0; i < items.size(); ++i) {
 		for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 			q[i][k] = distribution(generator);
+			z[i][k] = distribution(generator);
 		}
 	}
 
@@ -1048,7 +1122,7 @@ void run_matrix_factorization(vector<TestItem> &test,
 		break;
 	}
 	case 5: {
-		sgd_smf_asymmetric(trainingset, p, q);
+		sgd_smf_asymmetric(trainingset, p, q, y, z);
 		break;
 	}
 	}
@@ -1247,7 +1321,7 @@ void calcAdamicAdar() {
 }
 
 // scales user rating so that 1 if above user average or 0 otherwise
-void scaleRating(User *u) {
+void scaleUser(User *u) {
 	u->avg = 0;
 	u->std = 0;
 	u->adamic_adar = 1 / log(u->ratings.size());
@@ -1346,7 +1420,7 @@ void kfold(char algorithm) {
 		}
 
 		for (size_t i = 0; i < users.size(); ++i) {
-			scaleRating(users[i]);
+			scaleUser(users[i]);
 			sort(users[i]->ratings.begin(), users[i]->ratings.end(),
 					voteComparator);
 		}

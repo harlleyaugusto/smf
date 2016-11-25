@@ -744,6 +744,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	vector<pair_similarity> neighborhood_item;
 	vector<unsigned int> pair_indexes_item;
 
+	// calcula a similaridade dos usuarios
 	if (MF_SIMILARITY_USER) {
 
 		int count = 0;
@@ -765,7 +766,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 			}
 		}
 	}
-
+	//calcula a similaridade dos itens 
 	if (MF_SIMILARITY_ITEM) {
 		//cout << "ITEM" << endl;
 		int count = 0;
@@ -787,7 +788,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 		}
 		//cin.get();
 	}
-
+	// o que eh isso? Formula 3.4?
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
 		cout << it << endl;
 		random_shuffle(training_indexes.begin(), training_indexes.end());
@@ -814,7 +815,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 						* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
 			}
 		}
-
+		//formula 3.10
 		if (MF_SIMILARITY_USER) {
 
 			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
@@ -828,7 +829,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 				const double w = neighborhood_user[idx].weight;
 
 				double sig_p = dot_product(p[u], p[v]);
-				double err = (s - sig_p);
+				double err = (s - sig_p); // s eh similaridade sig_p produdto escalar pu pv
 				if (MF_NORMALIZE) {
 					sig_p = sigmoid(dot_product(p[u], p[v]));
 					err = (s - sig_p) * sig_p * (1 - sig_p);
@@ -840,7 +841,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 				}
 			}
 		}
-
+		//formula 3.10
 		if (MF_SIMILARITY_ITEM) {
 
 			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
@@ -894,7 +895,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			for (unsigned v = u + 1; v < users.size(); ++v) {
 				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
-
 				{
 					// (u,v)
 					pair_similarity pair;
@@ -1033,6 +1033,9 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		}
 
 		//TODO: asymmetric functionality must be implemented here
+		//A fatoração precisa. No paper que lhe passei eu fiz suv = pu*PV. Precisamos fazer SUV=PU.tv
+
+
 		if (MF_SIMILARITY_USER) {
 
 			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());

@@ -1063,7 +1063,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		}
 
 		if (MF_SIMILARITY_ITEM) {
-
 			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
 			for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
 

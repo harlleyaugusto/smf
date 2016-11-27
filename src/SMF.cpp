@@ -894,7 +894,7 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		int count = 0;
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			for (unsigned v = u + 1; v < users.size(); ++v) {
-				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER);//precisa chamar essa funcao?
+				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER); //precisa chamar essa funcao?
 				{
 					// (u,v)
 					pair_similarity pair;
@@ -1056,7 +1056,8 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 					p[u][k] += MF_ALPHA * (w * err * y[v][k]);
-					//p[v][k] += MF_ALPHA * (w * err * y[u][k]);
+					y[u][k] += MF_ALPHA
+							* (w * err * p[v][k] - MF_LAMBDA * y[u][k]);
 				}
 			}
 		}
@@ -1081,62 +1082,8 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 					q[u][k] += MF_ALPHA * (w * err * z[v][k]);
-					//q[v][k] += MF_ALPHA * (w * err * z[u][k]);
-				}
-			}
-		}
-		//aqui comeca a formula 1.17
-		if(MF_SIMILARITY_USER)
-		{
-			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
-			for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
-				unsigned int idx = pair_indexes_user[i];
-
-				const unsigned int u = neighborhood_user[idx].u;
-				const unsigned int v = neighborhood_user[idx].v;
-				const double s = neighborhood_user[idx].s;
-				const double w = neighborhood_user[idx].weight;
-
-				double sig_p = dot_product(p[u], y[v]);
-				double err = (s - sig_p);
-				if (MF_NORMALIZE) {
-					sig_p = sigmoid(dot_product(q[u], z[v]));
-					err = (s - sig_p) * sig_p * (1 - sig_p);
-				}
-
-				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-					y[u][k] += MF_ALPHA 
-						* (w * err * p[v][k] - MF_LAMBDA * y[u][k]);
-					//y[v][k] += MF_ALPHA 
-					//	* (w * err * p[u][k] - MF_LAMBDA * y[v][k]);
-				}
-			}
-		}
-
-		//aqui comeca a formula 1.18
-		if(MF_SIMILARITY_ITEM)
-		{
-			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
-			for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
-				unsigned int idx = pair_indexes_item[i];
-
-				const unsigned int u = neighborhood_item[idx].u;
-				const unsigned int v = neighborhood_item[idx].v;
-				const double s = neighborhood_item[idx].s;
-				const double w = neighborhood_item[idx].weight;
-
-				double sig_p = dot_product(q[u], z[v]);
-				double err = (s - sig_p);
-				if (MF_NORMALIZE) {
-					sig_p = sigmoid(dot_product(q[u], z[v]));
-					err = (s - sig_p) * sig_p * (1 - sig_p);
-				}
-
-				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-					z[u][k] += MF_ALPHA 
-						* (w * err * q[v][k] - MF_LAMBDA * z[u][k]);
-					//z[v][k] += MF_ALPHA 
-					//	* (w * err * q[u][k] - MF_LAMBDA * z[v][k]);
+					z[u][k] += MF_ALPHA
+							* (w * err * q[v][k] - MF_LAMBDA * z[u][k]);
 				}
 			}
 		}

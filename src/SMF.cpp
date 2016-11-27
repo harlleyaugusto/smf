@@ -20,6 +20,9 @@
 #include <ctime>
 #include <bitset>
 
+#include <omp.h>
+
+
 #define DELIM ','
 #define EPS 1e-8
 
@@ -728,8 +731,6 @@ typedef struct {
 void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 		vector<vector<double> > &q) {
 
-	cout << "BEGIN MF" << endl;
-
 	const unsigned int SIZE = trainingset.size();
 
 	vector<unsigned int> training_indexes(SIZE, 0);
@@ -768,7 +769,6 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	}
 	//calcula a similaridade dos itens 
 	if (MF_SIMILARITY_ITEM) {
-		//cout << "ITEM" << endl;
 		int count = 0;
 		for (unsigned int u = 0; u < items.size(); ++u) {
 			for (unsigned v = u + 1; v < items.size(); ++v) {
@@ -790,7 +790,6 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	}
 	// o que eh isso? Formula 3.4?
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
-		cout << it << endl;
 		random_shuffle(training_indexes.begin(), training_indexes.end());
 
 		for (unsigned int i = 0; i < SIZE; ++i) {
@@ -873,8 +872,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		vector<vector<double> > &p, vector<vector<double> > &q,
 		vector<vector<double> > &y, vector<vector<double> > &z) {
 
-	cout << "BEGIN MF" << endl;
-
 	const unsigned int SIZE = trainingset.size();
 
 	vector<unsigned int> training_indexes(SIZE, 0);
@@ -947,7 +944,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 	}
 
 	if (MF_SIMILARITY_ITEM) {
-		//cout << "ITEM" << endl;
 		int count = 0;
 		for (unsigned int u = 0; u < items.size(); ++u) {
 			for (unsigned v = u + 1; v < items.size(); ++v) {
@@ -1006,29 +1002,34 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 	}
 
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
-		cout << it << endl;
 		random_shuffle(training_indexes.begin(), training_indexes.end());
 
-		for (unsigned int i = 0; i < SIZE; ++i) {
-			Vote *v = trainingset[training_indexes[i]];
+#pragma omp parallel num_threads(NUM_THREADS)
+		{
 
-			unsigned int u_id = v->userId;
-			unsigned int i_id = v->itemId;
+#pragma omp for
 
-			double r = v->rating;
-			double err = (r - dot_product(p[u_id], q[i_id]));
+			for (unsigned int i = 0; i < SIZE; ++i) {
+				Vote *v = trainingset[training_indexes[i]];
 
-			if (MF_NORMALIZE) {
-				r = (v->rating - MIN_RATING) / DELTA_RATING;
-				double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
-				err = (r - sig_p) * sig_p * (1 - sig_p);
-			}
+				unsigned int u_id = v->userId;
+				unsigned int i_id = v->itemId;
 
-			for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-				p[u_id][k] += MF_ALPHA
-						* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
-				q[i_id][k] += MF_ALPHA
-						* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				double r = v->rating;
+				double err = (r - dot_product(p[u_id], q[i_id]));
+
+				if (MF_NORMALIZE) {
+					r = (v->rating - MIN_RATING) / DELTA_RATING;
+					double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
+					err = (r - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					p[u_id][k] += MF_ALPHA
+							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+					q[i_id][k] += MF_ALPHA
+							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				}
 			}
 		}
 
@@ -1038,51 +1039,63 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		if (MF_SIMILARITY_USER) {
 
 			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
-			for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
 
-				unsigned int idx = pair_indexes_user[i];
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
 
-				const unsigned int u = neighborhood_user[idx].u;
-				const unsigned int v = neighborhood_user[idx].v;
-				const double s = neighborhood_user[idx].s;
-				const double w = neighborhood_user[idx].weight;
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
 
-				double sig_p = dot_product(p[u], y[v]);
-				double err = (s - sig_p);
-				if (MF_NORMALIZE) {
-					sig_p = sigmoid(dot_product(p[u], y[v]));
-					err = (s - sig_p) * sig_p * (1 - sig_p);
-				}
+					unsigned int idx = pair_indexes_user[i];
 
-				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-					p[u][k] += MF_ALPHA * (w * err * y[v][k]);
-					y[u][k] += MF_ALPHA
-							* (w * err * p[v][k] - MF_LAMBDA * y[u][k]);
+					const unsigned int u = neighborhood_user[idx].u;
+					const unsigned int v = neighborhood_user[idx].v;
+					const double s = neighborhood_user[idx].s;
+					const double w = neighborhood_user[idx].weight;
+
+					double sig_p = dot_product(p[u], y[v]);
+					double err = (s - sig_p);
+					if (MF_NORMALIZE) {
+						sig_p = sigmoid(dot_product(p[u], y[v]));
+						err = (s - sig_p) * sig_p * (1 - sig_p);
+					}
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						p[u][k] += MF_ALPHA * (w * err * y[v][k]);
+						y[u][k] += MF_ALPHA
+								* (w * err * p[v][k] - MF_LAMBDA * y[u][k]);
+					}
 				}
 			}
 		}
 
 		if (MF_SIMILARITY_ITEM) {
 			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
-			for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
 
-				unsigned int idx = pair_indexes_item[i];
-				const unsigned int u = neighborhood_item[idx].u;
-				const unsigned int v = neighborhood_item[idx].v;
-				const double s = neighborhood_item[idx].s;
-				const double w = neighborhood_item[idx].weight;
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
 
-				double sig_p = dot_product(q[u], z[v]);
-				double err = (s - sig_p);
-				if (MF_NORMALIZE) {
-					sig_p = sigmoid(dot_product(q[u], z[v]));
-					err = (s - sig_p) * sig_p * (1 - sig_p);
-				}
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
 
-				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-					q[u][k] += MF_ALPHA * (w * err * z[v][k]);
-					z[u][k] += MF_ALPHA
-							* (w * err * q[v][k] - MF_LAMBDA * z[u][k]);
+					unsigned int idx = pair_indexes_item[i];
+					const unsigned int u = neighborhood_item[idx].u;
+					const unsigned int v = neighborhood_item[idx].v;
+					const double s = neighborhood_item[idx].s;
+					const double w = neighborhood_item[idx].weight;
+
+					double sig_p = dot_product(q[u], z[v]);
+					double err = (s - sig_p);
+					if (MF_NORMALIZE) {
+						sig_p = sigmoid(dot_product(q[u], z[v]));
+						err = (s - sig_p) * sig_p * (1 - sig_p);
+					}
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						q[u][k] += MF_ALPHA * (w * err * z[v][k]);
+						z[u][k] += MF_ALPHA
+								* (w * err * q[v][k] - MF_LAMBDA * z[u][k]);
+					}
 				}
 			}
 		}

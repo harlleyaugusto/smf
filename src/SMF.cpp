@@ -955,7 +955,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 					}
 
 					if (abs(pair.s) > threshold) {
-						cout << pair.s << ",";
 						neighborhood_user.push_back(pair);
 						pair_indexes_user.push_back(count++);
 					}
@@ -980,7 +979,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 					}
 
 					if (abs(pair.s) > threshold) {
-						cout << pair.s << endl;
 
 						neighborhood_user.push_back(pair);
 						pair_indexes_user.push_back(count++);
@@ -1016,7 +1014,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 						break;
 					}
 					if (abs(pair.s) > threshold) {
-						cout << pair.s << ",";
 						neighborhood_item.push_back(pair);
 						pair_indexes_item.push_back(count++);
 
@@ -1041,7 +1038,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 						break;
 					}
 					if (abs(pair.s) > threshold) {
-						cout << pair.s << endl;
 
 						neighborhood_item.push_back(pair);
 						pair_indexes_item.push_back(count++);

@@ -22,7 +22,6 @@
 
 #include <omp.h>
 
-
 #define DELIM ','
 #define EPS 1e-8
 
@@ -35,9 +34,11 @@
 
 #define PEARSON_SIMILARITY 1
 #define JACCARD_SIMILARITY 2
-#define ASYMMETRIC_JACCARD_SIMILARITY 21
 #define COSINE_SIMILARITY 3
-#define ADAMIC_ADAR_SIMILARIY 4
+#define LIANG_SIMILARITY 4
+
+#define ASYMMETRIC_JACCARD_SIMILARITY 11
+#define ASYMMETRIC_ADAMIC_ADAR_SIMILARIY 12
 
 #define INTERSECTION 100
 
@@ -72,7 +73,8 @@ typedef struct {
 struct Item {
 	Item() :
 			// dummy votes
-			nUps(1), nRatings(2) {
+			nUps(1), nRatings(2), adamic_adar(0), adamic_adar_sum_neighbors(0), liang_sum(
+					0) {
 	}
 	~Item() {
 		users.clear();
@@ -89,6 +91,7 @@ struct Item {
 	vector<Vote *> ratings;
 	double adamic_adar;
 	double adamic_adar_sum_neighbors;
+	double liang_sum;
 };
 typedef struct Item Item;
 
@@ -539,7 +542,7 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 		value = ((double) p_v.size());
 		break;
 	}
-	case ADAMIC_ADAR_SIMILARIY: {
+	case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY: {
 		value = 0;
 		for (unsigned i = 0; i < intersection.size(); ++i) {
 			value += users[intersection[i]]->adamic_adar;
@@ -557,6 +560,40 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 	return value;
 }
 
+double LIANG_SUM_SIMILARITY = 0;
+
+void calc_liang_similarity() {
+	for (unsigned i = 0; i < items.size(); ++i) {
+		for (unsigned j = i + 1; j < items.size(); ++j) {
+
+			unsigned int index = items.size() * i + j
+					- 0.5 * ((i + 2) * (i + 1));
+
+			double value = calc_similarity_item(i, j, INTERSECTION);
+			similarity_matrix[index] = value;
+			items[i]->liang_sum += value;
+			items[j]->liang_sum += value;
+			LIANG_SUM_SIMILARITY += value;
+		}
+	}
+}
+
+double get_liang_similarity(unsigned i, unsigned j) {
+	if (i > j) {
+		int aux = i;
+		i = j;
+		j = aux;
+	}
+
+	unsigned int index = items.size() * i + j - 0.5 * ((i + 2) * (i + 1));
+
+	double value = (similarity_matrix[index] * LIANG_SUM_SIMILARITY)
+			/ (items[i]->liang_sum * items[j]->liang_sum);
+	value = log(value);
+
+	return value;
+}
+
 double get_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 	if (p == q) {
@@ -570,8 +607,15 @@ double get_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 	}
 	unsigned int index = items.size() * p + q - 0.5 * ((p + 2) * (p + 1));
 
-	if (similarity_matrix[index] < 0) {
-		similarity_matrix[index] = calc_similarity_item(p, q, type);
+	switch (type) {
+	case LIANG_SIMILARITY:
+		return get_liang_similarity(p, q);
+		break;
+	default:
+		if (similarity_matrix[index] < 0) {
+			similarity_matrix[index] = calc_similarity_item(p, q, type);
+		}
+		break;
 	}
 
 	return similarity_matrix[index];
@@ -652,7 +696,7 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		value = ((double) x_v.size());
 		break;
 	}
-	case ADAMIC_ADAR_SIMILARIY: {
+	case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY: {
 		value = 0.0;
 		for (unsigned i = 0; i < intersection.size(); ++i) {
 			value += items[intersection[i]]->adamic_adar;
@@ -745,7 +789,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	vector<pair_similarity> neighborhood_item;
 	vector<unsigned int> pair_indexes_item;
 
-	// calcula a similaridade dos usuarios
+// calcula a similaridade dos usuarios
 	if (MF_SIMILARITY_USER) {
 
 		int count = 0;
@@ -767,7 +811,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 			}
 		}
 	}
-	//calcula a similaridade dos itens 
+//calcula a similaridade dos itens
 	if (MF_SIMILARITY_ITEM) {
 		int count = 0;
 		for (unsigned int u = 0; u < items.size(); ++u) {
@@ -788,7 +832,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 		}
 		//cin.get();
 	}
-	// o que eh isso? Formula 3.4?
+// o que eh isso? Formula 3.4?
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
 		random_shuffle(training_indexes.begin(), training_indexes.end());
 
@@ -905,12 +949,13 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 						pair.s /= users[u]->ratings.size();
 						break;
 
-					case ADAMIC_ADAR_SIMILARIY:
+					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= users[u]->adamic_adar_sum_neighbors;
 						break;
 					}
 
 					if (abs(pair.s) > threshold) {
+						cout << pair.s << ",";
 						neighborhood_user.push_back(pair);
 						pair_indexes_user.push_back(count++);
 					}
@@ -929,12 +974,14 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 						pair.s /= users[v]->ratings.size();
 						break;
 
-					case ADAMIC_ADAR_SIMILARIY:
+					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= users[v]->adamic_adar_sum_neighbors;
 						break;
 					}
 
 					if (abs(pair.s) > threshold) {
+						cout << pair.s << endl;
+
 						neighborhood_user.push_back(pair);
 						pair_indexes_user.push_back(count++);
 					}
@@ -964,11 +1011,12 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 						pair.s /= items[u]->ratings.size();
 						break;
 
-					case ADAMIC_ADAR_SIMILARIY:
+					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= items[u]->adamic_adar_sum_neighbors;
 						break;
 					}
 					if (abs(pair.s) > threshold) {
+						cout << pair.s << ",";
 						neighborhood_item.push_back(pair);
 						pair_indexes_item.push_back(count++);
 
@@ -988,11 +1036,13 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 						pair.s /= items[v]->ratings.size();
 						break;
 
-					case ADAMIC_ADAR_SIMILARIY:
+					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= items[v]->adamic_adar_sum_neighbors;
 						break;
 					}
 					if (abs(pair.s) > threshold) {
+						cout << pair.s << endl;
+
 						neighborhood_item.push_back(pair);
 						pair_indexes_item.push_back(count++);
 					}
@@ -1452,6 +1502,12 @@ void kfold(char algorithm) {
 			sort(p->ratings.begin(), p->ratings.end(), voteComparator2);
 		}
 
+		switch (MF_SIMILARITY_ITEM) {
+
+		case LIANG_SIMILARITY:
+			calc_liang_similarity();
+			break;
+		}
 		calcAdamicAdar();
 
 		for (map<unsigned int, vector<Review*> >::iterator it2 = test.begin();

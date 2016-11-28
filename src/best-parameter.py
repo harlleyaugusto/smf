@@ -8,6 +8,22 @@ from scipy import stats
 
 import shutil
 import os
+import glob
+
+max_value = -1
+max_file = ""
+
+for f in glob.glob('./*.out'):
+    df = pd.read_csv(f, header=None)
+    value =  np.mean(df.ix[:,0])
+    if(value > max_value):
+        max_value = value
+        max_file = f
+
+print(max_file)
+
+"{0} {1}".format(max_file, max_value)
+        
 
 s_user = [4, 21]
 s_item = [4, 21]
@@ -27,7 +43,8 @@ for u in s_user:
                         for r in regularization:
                                 for a in alpha:
                                         s = "{0}-{1}-{2}-0-{3:.5f}-{4:.5f}".format(f,u,i,r,a)
-                                        value =  np.mean(pd.read_csv(s+".out", header=None).ix[:,0])
+                                        df = pd.read_csv(s+".out", header=None)
+                                        value =  np.mean(df.ix[:,0])
                                         #print(value)
                                         line = "{0},{1},{2},0,{3},{4},{5}".format(u,i,f,r,a,value)
 

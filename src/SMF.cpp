@@ -1081,6 +1081,12 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= users[v]->adamic_adar_sum_neighbors;
 						break;
+					case ACOS:
+						pair.s = calc_similarity_user(v, u, MF_SIMILARITY_USER);
+						break;
+					case AMSD:
+						pair.s = calc_similarity_user(v, u, MF_SIMILARITY_USER);
+						break;
 					}
 
 					if (abs(pair.s) > threshold) {
@@ -1140,6 +1146,12 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= items[v]->adamic_adar_sum_neighbors;
+						break;
+					case ACOS:
+						pair.s = calc_similarity_item(v, u, MF_SIMILARITY_ITEM);
+						break;
+					case AMSD:
+						pair.s = calc_similarity_item(v, u, MF_SIMILARITY_ITEM);
 						break;
 					}
 					if (abs(pair.s) > threshold) {

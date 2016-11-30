@@ -20,10 +20,9 @@ for f in glob.glob('./*.out'):
         max_value = value
         max_file = f
 
-print(max_file)
 
 "{0} {1}".format(max_file, max_value)
-        
+print(max_file)        
 
 s_user = [4, 21]
 s_item = [4, 21]
@@ -47,10 +46,9 @@ for u in s_user:
                                         value =  np.mean(df.ix[:,0])
                                         #print(value)
                                         line = "{0},{1},{2},0,{3},{4},{5}".format(u,i,f,r,a,value)
-
                                         if(value > max):
-                                                max = value
-                                                max_line = line
-                                    			max_file = s
-                                    			max_pair = "{0}-{1}".format(u,i)
+                                            max = value
+                                            max_line = line
+                                            max_file = s
+                                            max_pair = "{0}-{1}".format(u,i)
 		print(max_line)

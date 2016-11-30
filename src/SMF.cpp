@@ -39,6 +39,9 @@
 
 #define ASYMMETRIC_JACCARD_SIMILARITY 11
 #define ASYMMETRIC_ADAMIC_ADAR_SIMILARIY 12
+#define ACOS 13
+#define AMSD 14
+#define L 16.0
 
 #define INTERSECTION 100
 
@@ -73,7 +76,8 @@ typedef struct {
 struct Item {
 	Item() :
 			// dummy votes
-			nUps(1), nRatings(2), adamic_adar(0), adamic_adar_sum_neighbors(0), liang_sum(
+			id(0), avg(0), posteriori_success(0), odds_ratio(0), nUps(1), nRatings(
+					2), adamic_adar(0), adamic_adar_sum_neighbors(0), liang_sum(
 					0) {
 	}
 	~Item() {
@@ -82,28 +86,34 @@ struct Item {
 	}
 
 	unsigned int id;
-	unsigned int nUps;
-	unsigned int nRatings;
+	double avg;
 	double posteriori_success;
 	double odds_ratio;
-	double avg;
-	set<unsigned int> users;
-	vector<Vote *> ratings;
+	unsigned int nUps;
+	unsigned int nRatings;
 	double adamic_adar;
 	double adamic_adar_sum_neighbors;
 	double liang_sum;
+	set<unsigned int> users;
+	vector<Vote *> ratings;
 };
 typedef struct Item Item;
 
 struct User {
 	unsigned int id;
-	set<unsigned int> items;
-	vector<Vote *> ratings;
 	double avg;
 	double std;
 	double adamic_adar;
 	double adamic_adar_sum_neighbors;
+	double liang_sum;
 
+	set<unsigned int> items;
+	vector<Vote *> ratings;
+
+	User() :
+			id(0), avg(0), std(0), adamic_adar(0), adamic_adar_sum_neighbors(0), liang_sum(
+					0) {
+	}
 	~User() {
 		for (size_t i = 0; i < ratings.size(); ++i)
 			delete ratings[i];
@@ -178,6 +188,11 @@ typedef struct {
 int cmp(double x, double y, double tol = 1e-19) {
 	return (x <= y + tol) ? (x + tol < y) ? -1 : 0 : 1;
 }
+
+inline unsigned get_index(unsigned i, unsigned j, unsigned n) {
+	return n * i + j - 0.5 * ((i + 2) * (i + 1));
+}
+
 //### END MISCELLANEOUS
 
 //#### BEGIN METRICS
@@ -464,7 +479,8 @@ double vct_norm(vector<float>& v) {
 	return sqrt(sum_val);
 }
 
-vector<double> similarity_matrix;
+vector<double> user_similarity_matrix;
+vector<double> item_similarity_matrix;
 
 // item similarity
 
@@ -552,44 +568,96 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 		break;
 	}
-	case INTERSECTION:
+	case INTERSECTION: {
 		value = p_v.size();
 		break;
+	}	
+	case ACOS: {
+
+		//eq. 1
+		value = ((double) p_v.size()) / u.size();
+		
+		//eq. 2
+		value *= (2.0 * p_v.size()) / (u.size() + v.size());
+			
+		//cosine 
+		double cosine;
+		double num = 0;
+		double x_den = vct_norm(p_v);
+		double y_den = vct_norm(q_v);
+		for (unsigned int i = 0; i < p_v.size(); ++i) {
+			num += p_v[i] * q_v[i];
+		}
+		cosine = (num / sqrt(x_den * y_den));
+
+		//eq. 3
+		value *= cosine;
+		
+		break;
 	}
+	case AMSD: {
+
+		//eq. 1
+		value = ((double) p_v.size()) / u.size();
+		
+		//eq. 2
+		value *= (2.0 * p_v.size()) / (u.size() + v.size());
+			
+		//eq. 3
+
+		double num = 0;
+		double MSD;
+		for (unsigned int i = 0; i < p_v.size(); ++i) {
+			num += pow((p_v[i] - q_v[i]), 2.0);
+		}
+		MSD = (num / (u.size() + v.size() - p_v.size()));
+
+		//eq. 5
+		double sim_u_v = (L - MSD) / L;
+
+		//eq. 6
+
+		value *= sim_u_v;
+		
+		break;
+	}
+
+}
 
 	return value;
 }
 
-double LIANG_SUM_SIMILARITY = 0;
+double LIANG_SUM_ITEM_SIMILARITY = 0;
+double LIANG_SUM_USER_SIMILARITY = 0;
 
-void calc_liang_similarity() {
+void calc_liang_item_similarity() {
 	for (unsigned i = 0; i < items.size(); ++i) {
 		for (unsigned j = i + 1; j < items.size(); ++j) {
 
-			unsigned int index = items.size() * i + j
-					- 0.5 * ((i + 2) * (i + 1));
+			unsigned int index = get_index(i, j, items.size());
 
 			double value = calc_similarity_item(i, j, INTERSECTION);
-			similarity_matrix[index] = value;
+			item_similarity_matrix[index] = value;
 			items[i]->liang_sum += value;
 			items[j]->liang_sum += value;
-			LIANG_SUM_SIMILARITY += value;
+			LIANG_SUM_ITEM_SIMILARITY += value;
 		}
 	}
 }
 
-double get_liang_similarity(unsigned i, unsigned j) {
+double get_liang_item_similarity(unsigned i, unsigned j) {
 	if (i > j) {
 		int aux = i;
 		i = j;
 		j = aux;
 	}
 
-	unsigned int index = items.size() * i + j - 0.5 * ((i + 2) * (i + 1));
+	unsigned int index = get_index(i, j, items.size());
 
-	double value = (similarity_matrix[index] * LIANG_SUM_SIMILARITY)
+	double value = (item_similarity_matrix[index] * LIANG_SUM_ITEM_SIMILARITY)
 			/ (items[i]->liang_sum * items[j]->liang_sum);
 	value = log(value);
+	value = value > 0 ? value : 0;
 
 	return value;
 }
@@ -605,20 +673,20 @@ double get_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 		p = q;
 		q = aux;
 	}
-	unsigned int index = items.size() * p + q - 0.5 * ((p + 2) * (p + 1));
+	unsigned int index = get_index(p, q, items.size());
 
 	switch (type) {
 	case LIANG_SIMILARITY:
-		return get_liang_similarity(p, q);
+		return get_liang_item_similarity(p, q);
 		break;
 	default:
-		if (similarity_matrix[index] < 0) {
-			similarity_matrix[index] = calc_similarity_item(p, q, type);
+		if (item_similarity_matrix[index] < 0) {
+			item_similarity_matrix[index] = calc_similarity_item(p, q, type);
 		}
 		break;
 	}
 
-	return similarity_matrix[index];
+	return item_similarity_matrix[index];
 
 }
 
@@ -704,10 +772,94 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		break;
 	}
 
-	case INTERSECTION:
+	case INTERSECTION: {
 		value = x_v.size();
 		break;
+	
 	}
+	case ACOS: {
+
+		//eq. 1
+		value = ((double) x_v.size()) / u->ratings.size();
+		
+		//eq. 2
+		value *= (2.0 * x_v.size()) / (u->ratings.size() + v->ratings.size());
+			
+		//cosine 
+		double cosine;
+		double num = 0;
+		double x_den = vct_norm(x_v);
+		double y_den = vct_norm(y_v);
+		for (unsigned int i = 0; i < x_v.size(); ++i) {
+			num += x_v[i] * y_v[i];
+		}	
+		cosine = (num / sqrt(x_den * y_den));
+
+		//eq. 3
+		value *= cosine;
+
+		break;
+	}
+	case AMSD: {
+
+		//eq. 1
+		value = ((double) x_v.size()) / u->ratings.size();
+		
+		//eq. 2
+		value *= (2.0 * x_v.size()) / (u->ratings.size() + v->ratings.size());
+	
+		//eq. 4
+
+		double num = 0;
+		double MSD;
+
+		for (unsigned int i = 0; i < x_v.size(); ++i) {
+			num += pow((x_v[i] - y_v[i]), 2.0);
+		}
+		MSD = (num / (u->ratings.size() + v->ratings.size() - x_v.size()));
+
+		//eq. 5
+		double sim_u_v = (L - MSD) / L;
+
+		//eq. 6
+		value *= sim_u_v; 
+		break;
+	}
+}
+	
+
+	return value;
+}
+
+void calc_liang_user_similarity() {
+	for (unsigned i = 0; i < users.size(); ++i) {
+		for (unsigned j = i + 1; j < users.size(); ++j) {
+
+			unsigned int index = get_index(i, j, users.size());
+
+			double value = calc_similarity_user(i, j, INTERSECTION);
+			user_similarity_matrix[index] = value;
+			users[i]->liang_sum += value;
+			users[j]->liang_sum += value;
+			LIANG_SUM_USER_SIMILARITY += value;
+		}
+	}
+}
+
+double get_liang_user_similarity(unsigned i, unsigned j) {
+	if (i > j) {
+		int aux = i;
+		i = j;
+		j = aux;
+	}
+
+	unsigned int index = get_index(i, j, users.size());
+
+	double value = (user_similarity_matrix[index] * LIANG_SUM_USER_SIMILARITY)
+			/ (users[i]->liang_sum * users[j]->liang_sum);
+	value = log(value);
+
+	value = value > 0 ? value : 0;
 
 	return value;
 }
@@ -729,11 +881,11 @@ double get_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 	}
 	unsigned int index = users.size() * p + q - 0.5 * ((p + 2) * (p + 1));
 
-	if (similarity_matrix[index] < 0) {
-		similarity_matrix[index] = calc_similarity_user(p, q, type);
+	if (user_similarity_matrix[index] < 0) {
+		user_similarity_matrix[index] = calc_similarity_user(p, q, type);
 	}
 
-	return similarity_matrix[index];
+	return user_similarity_matrix[index];
 }
 
 // ################# END SIMILARITY
@@ -795,7 +947,17 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 		int count = 0;
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			for (unsigned v = u + 1; v < users.size(); ++v) {
-				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
+				double value = 0;
+
+				switch (MF_SIMILARITY_USER) {
+				case LIANG_SIMILARITY:
+					value = get_liang_user_similarity(u, v);
+					break;
+				default:
+					value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
+					break;
+				}
+
 				if (abs(value) > threshold) {
 					pair_similarity pair;
 					pair.u = u;
@@ -811,12 +973,24 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 			}
 		}
 	}
+
 //calcula a similaridade dos itens
 	if (MF_SIMILARITY_ITEM) {
 		int count = 0;
 		for (unsigned int u = 0; u < items.size(); ++u) {
 			for (unsigned v = u + 1; v < items.size(); ++v) {
-				double value = calc_similarity_item(u, v, MF_SIMILARITY_ITEM);
+
+				double value = 0;
+
+				switch (MF_SIMILARITY_ITEM) {
+				case LIANG_SIMILARITY:
+					value = get_liang_item_similarity(u, v);
+					break;
+				default:
+					value = calc_similarity_user(u, v, MF_SIMILARITY_ITEM);
+					break;
+				}
+
 				if (abs(value) > threshold) {
 					pair_similarity pair;
 					pair.u = u;
@@ -830,82 +1004,97 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 				}
 			}
 		}
-		//cin.get();
 	}
-// o que eh isso? Formula 3.4?
+
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
 		random_shuffle(training_indexes.begin(), training_indexes.end());
 
-		for (unsigned int i = 0; i < SIZE; ++i) {
-			Vote *v = trainingset[training_indexes[i]];
+#pragma omp parallel num_threads(NUM_THREADS)
+		{
 
-			unsigned int u_id = v->userId;
-			unsigned int i_id = v->itemId;
+#pragma omp for
 
-			double r = v->rating;
-			double err = (r - dot_product(p[u_id], q[i_id]));
+			for (unsigned int i = 0; i < SIZE; ++i) {
+				Vote *v = trainingset[training_indexes[i]];
 
-			if (MF_NORMALIZE) {
-				r = (v->rating - MIN_RATING) / DELTA_RATING;
-				double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
-				err = (r - sig_p) * sig_p * (1 - sig_p);
-			}
+				unsigned int u_id = v->userId;
+				unsigned int i_id = v->itemId;
 
-			for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-				p[u_id][k] += MF_ALPHA
-						* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
-				q[i_id][k] += MF_ALPHA
-						* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				double r = v->rating;
+				double err = (r - dot_product(p[u_id], q[i_id]));
+
+				if (MF_NORMALIZE) {
+					r = (v->rating - MIN_RATING) / DELTA_RATING;
+					double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
+					err = (r - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					p[u_id][k] += MF_ALPHA
+							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+					q[i_id][k] += MF_ALPHA
+							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				}
 			}
 		}
-		//formula 3.10
+
 		if (MF_SIMILARITY_USER) {
-
 			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
-			for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
 
-				unsigned int idx = pair_indexes_user[i];
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
 
-				const unsigned int u = neighborhood_user[idx].u;
-				const unsigned int v = neighborhood_user[idx].v;
-				const double s = neighborhood_user[idx].s;
-				const double w = neighborhood_user[idx].weight;
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
 
-				double sig_p = dot_product(p[u], p[v]);
-				double err = (s - sig_p); // s eh similaridade sig_p produdto escalar pu pv
-				if (MF_NORMALIZE) {
-					sig_p = sigmoid(dot_product(p[u], p[v]));
-					err = (s - sig_p) * sig_p * (1 - sig_p);
-				}
+					unsigned int idx = pair_indexes_user[i];
 
-				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-					p[u][k] += MF_ALPHA * (w * err * p[v][k]);
-					p[v][k] += MF_ALPHA * (w * err * p[u][k]);
+					const unsigned int u = neighborhood_user[idx].u;
+					const unsigned int v = neighborhood_user[idx].v;
+					const double s = neighborhood_user[idx].s;
+					const double w = neighborhood_user[idx].weight;
+
+					double sig_p = dot_product(p[u], p[v]);
+					double err = (s - sig_p); // s eh similaridade sig_p produdto escalar pu pv
+					if (MF_NORMALIZE) {
+						sig_p = sigmoid(dot_product(p[u], p[v]));
+						err = (s - sig_p) * sig_p * (1 - sig_p);
+					}
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						p[u][k] += MF_ALPHA * (w * err * p[v][k]);
+						p[v][k] += MF_ALPHA * (w * err * p[u][k]);
+					}
 				}
 			}
 		}
-		//formula 3.10
+
 		if (MF_SIMILARITY_ITEM) {
-
 			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
-			for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
 
-				unsigned int idx = pair_indexes_item[i];
-				const unsigned int u = neighborhood_item[idx].u;
-				const unsigned int v = neighborhood_item[idx].v;
-				const double s = neighborhood_item[idx].s;
-				const double w = neighborhood_item[idx].weight;
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
 
-				double sig_p = dot_product(q[u], q[v]);
-				double err = (s - sig_p);
-				if (MF_NORMALIZE) {
-					sig_p = sigmoid(dot_product(q[u], q[v]));
-					err = (s - sig_p) * sig_p * (1 - sig_p);
-				}
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
 
-				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
-					q[u][k] += MF_ALPHA * (w * err * q[v][k]);
-					q[v][k] += MF_ALPHA * (w * err * q[u][k]);
+					unsigned int idx = pair_indexes_item[i];
+					const unsigned int u = neighborhood_item[idx].u;
+					const unsigned int v = neighborhood_item[idx].v;
+					const double s = neighborhood_item[idx].s;
+					const double w = neighborhood_item[idx].weight;
+
+					double sig_p = dot_product(q[u], q[v]);
+					double err = (s - sig_p);
+					if (MF_NORMALIZE) {
+						sig_p = sigmoid(dot_product(q[u], q[v]));
+						err = (s - sig_p) * sig_p * (1 - sig_p);
+					}
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						q[u][k] += MF_ALPHA * (w * err * q[v][k]);
+						q[v][k] += MF_ALPHA * (w * err * q[u][k]);
+					}
 				}
 			}
 		}
@@ -935,7 +1124,7 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		int count = 0;
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			for (unsigned v = u + 1; v < users.size(); ++v) {
-				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER); //precisa chamar essa funcao?
+				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER); 
 				{
 					// (u,v)
 					pair_similarity pair;
@@ -975,6 +1164,12 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= users[v]->adamic_adar_sum_neighbors;
+						break;
+					case ACOS:
+						pair.s = calc_similarity_user(v, u, MF_SIMILARITY_USER);
+						break;
+					case AMSD:
+						pair.s = calc_similarity_user(v, u, MF_SIMILARITY_USER);
 						break;
 					}
 
@@ -1035,6 +1230,12 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 					case ASYMMETRIC_ADAMIC_ADAR_SIMILARIY:
 						pair.s /= items[v]->adamic_adar_sum_neighbors;
+						break;
+					case ACOS:
+						pair.s = calc_similarity_item(v, u, MF_SIMILARITY_ITEM);
+						break;
+					case AMSD:
+						pair.s = calc_similarity_item(v, u, MF_SIMILARITY_ITEM);
 						break;
 					}
 					if (abs(pair.s) > threshold) {
@@ -1501,9 +1702,21 @@ void kfold(char algorithm) {
 		switch (MF_SIMILARITY_ITEM) {
 
 		case LIANG_SIMILARITY:
-			calc_liang_similarity();
+			unsigned size = items.size();
+			item_similarity_matrix.resize(0.5 * (size - 1) * size, -2);
+			calc_liang_item_similarity();
 			break;
 		}
+
+		switch (MF_SIMILARITY_USER) {
+
+		case LIANG_SIMILARITY:
+			unsigned size = users.size();
+			user_similarity_matrix.resize(0.5 * (size - 1) * size, -2);
+			calc_liang_user_similarity();
+			break;
+		}
+
 		calcAdamicAdar();
 
 		for (map<unsigned int, vector<Review*> >::iterator it2 = test.begin();

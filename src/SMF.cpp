@@ -571,15 +571,15 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 	case INTERSECTION: {
 		value = p_v.size();
 		break;
-	}	
+	}
 	case ACOS: {
 
 		//eq. 1
 		value = ((double) p_v.size()) / u.size();
-		
+
 		//eq. 2
 		value *= (2.0 * p_v.size()) / (u.size() + v.size());
-			
+
 		//cosine 
 		double cosine;
 		double num = 0;
@@ -592,17 +592,17 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 		//eq. 3
 		value *= cosine;
-		
+
 		break;
 	}
 	case AMSD: {
 
 		//eq. 1
 		value = ((double) p_v.size()) / u.size();
-		
+
 		//eq. 2
 		value *= (2.0 * p_v.size()) / (u.size() + v.size());
-			
+
 		//eq. 3
 
 		double num = 0;
@@ -618,11 +618,11 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 		//eq. 6
 
 		value *= sim_u_v;
-		
+
 		break;
 	}
 
-}
+	}
 
 	return value;
 }
@@ -775,16 +775,16 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 	case INTERSECTION: {
 		value = x_v.size();
 		break;
-	
+
 	}
 	case ACOS: {
 
 		//eq. 1
 		value = ((double) x_v.size()) / u->ratings.size();
-		
+
 		//eq. 2
 		value *= (2.0 * x_v.size()) / (u->ratings.size() + v->ratings.size());
-			
+
 		//cosine 
 		double cosine;
 		double num = 0;
@@ -792,7 +792,7 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		double y_den = vct_norm(y_v);
 		for (unsigned int i = 0; i < x_v.size(); ++i) {
 			num += x_v[i] * y_v[i];
-		}	
+		}
 		cosine = (num / sqrt(x_den * y_den));
 
 		//eq. 3
@@ -804,10 +804,10 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 
 		//eq. 1
 		value = ((double) x_v.size()) / u->ratings.size();
-		
+
 		//eq. 2
 		value *= (2.0 * x_v.size()) / (u->ratings.size() + v->ratings.size());
-	
+
 		//eq. 4
 
 		double num = 0;
@@ -822,11 +822,10 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		double sim_u_v = (L - MSD) / L;
 
 		//eq. 6
-		value *= sim_u_v; 
+		value *= sim_u_v;
 		break;
 	}
-}
-	
+	}
 
 	return value;
 }
@@ -1124,7 +1123,7 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		int count = 0;
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			for (unsigned v = u + 1; v < users.size(); ++v) {
-				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER); 
+				double value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
 				{
 					// (u,v)
 					pair_similarity pair;
@@ -1758,9 +1757,10 @@ int main(int argc, char **argv) {
 	read_data(filename);
 
 	switch (algorithm) {
-	case 0:
+	case 0: {
 		generate_dataset();
 		break;
+	}
 	case MATRIX_FACTORIZATION: {
 		MF_ALGORITHM = atoi(argv[7]);
 		MF_NUM_FACTORS = atoi(argv[8]);

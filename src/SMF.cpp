@@ -613,7 +613,7 @@ double calc_similarity_item(unsigned int p, unsigned int q, unsigned int type) {
 
 		//eq. 5
 
-		double L = DELTA_RATING*DELTA_RATING;
+		double L = DELTA_RATING * DELTA_RATING;
 		double sim_u_v = (L - MSD) / L;
 
 		//eq. 6
@@ -820,7 +820,7 @@ double calc_similarity_user(unsigned int p, unsigned int q, unsigned int type) {
 		MSD = (num / (u->ratings.size() + v->ratings.size() - x_v.size()));
 
 		//eq. 5
-		double L = DELTA_RATING*DELTA_RATING;
+		double L = DELTA_RATING * DELTA_RATING;
 		double sim_u_v = (L - MSD) / L;
 
 		//eq. 6
@@ -988,7 +988,7 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 					value = get_liang_item_similarity(u, v);
 					break;
 				default:
-					value = calc_similarity_user(u, v, MF_SIMILARITY_ITEM);
+					value = calc_similarity_item(u, v, MF_SIMILARITY_ITEM);
 					break;
 				}
 

@@ -1106,9 +1106,12 @@ void graph_users()
 {
 	unsigned i, j;
 	double w;
+	//cout << "Teste";
 	for (unsigned int u = 0; u < users.size(); ++u) 
 	{
 		w = 0.0;
+		i = 0;
+		j = 0;
 		for (unsigned v = u + 1; v < users.size(); ++v) 
 		{
 			while (i < users[u]->ratings.size() && j < users[v]->ratings.size()) 
@@ -1125,12 +1128,52 @@ void graph_users()
 					}
 					++i;
 					++j;
+					cout << users[u]->id << ";" << users[v]->id << "\n";
+					break;
 				}
 			}
-			if (w > 0.0) 
+			/*if (w >= 0.0) 
 			{
-				cout << users[u] << " " << users[v] << " " << w;
-			}	
+				cout << users[u]->id << " " << users[v]->id << " " << w << "\n"; 
+			}*/	
+		}
+	}
+}
+
+void graph_item()
+{
+	unsigned i, j;
+	double w;
+	//cout << "Teste";
+	for (unsigned int u = 0; u < items.size(); ++u) 
+	{
+		w = 0.0;
+		i = 0;
+		j = 0;
+		for (unsigned v = u + 1; v < items.size(); ++v) 
+		{
+			while (i < items[u]->ratings.size() && j < items[v]->ratings.size()) 
+			{
+				if (items[u]->ratings[i]->userId < items[v]->ratings[j]->userId)
+					i++;
+				else if (items[u]->ratings[j]->userId < items[u]->ratings[i]->userId)
+					j++;
+				else 
+				{
+					if(items[u]->ratings[j]->rating >= items[u]->avg)
+					{
+						w += items[u]->ratings[j]->rating;	
+					}
+					++i;
+					++j;
+					cout << items[u]->id << ";" << items[v]->id << "\n";
+					break;
+				}
+			}
+			/*if (w >= 0.0) 
+			{
+				cout << users[u]->id << " " << users[v]->id << " " << w << "\n"; 
+			}	*/
 		}
 	}
 }
@@ -1660,7 +1703,6 @@ void kfold(char algorithm) {
 		map<unsigned int, unsigned int>::iterator it;
 		vector<TestItem> testset;
 		vector<Vote *> trainingset;
-
 		unsigned int num_feedbacks = 0;
 
 		for (size_t z = 0; z < reviews.size(); ++z) {
@@ -1715,7 +1757,8 @@ void kfold(char algorithm) {
 				trainingset.push_back(v);
 			}
 		}
-
+		graph_users();
+		//graph_item();
 		for (size_t i = 0; i < users.size(); ++i) {
 			scaleUser(users[i]);
 			sort(users[i]->ratings.begin(), users[i]->ratings.end(),
@@ -1763,7 +1806,6 @@ void kfold(char algorithm) {
 				testset.push_back(unit);
 			}
 		}
-
 		Experiment result;
 		switch (algorithm) {
 		case MATRIX_FACTORIZATION: {
@@ -1771,13 +1813,13 @@ void kfold(char algorithm) {
 			break;
 		}
 		}
+
 		clear();
 	}
 }
 
 int main(int argc, char **argv) {
 	srand(0);
-
 	topN.push_back(5);
 	topN.push_back(10);
 
@@ -1791,7 +1833,7 @@ int main(int argc, char **argv) {
 	k_count.resize(K_FOLD, 0);
 	read_data(filename);
 
-	graph_users();
+	
 
 	switch (algorithm) {
 	case 0: {
@@ -1820,6 +1862,6 @@ int main(int argc, char **argv) {
 
 
 	kfold(algorithm);
-	graph_users();
+	
 	return 0;
 }

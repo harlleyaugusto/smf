@@ -1102,6 +1102,39 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	}
 }
 
+void graph_users()
+{
+	unsigned i, j;
+	double w;
+	for (unsigned int u = 0; u < users.size(); ++u) 
+	{
+		w = 0.0;
+		for (unsigned v = u + 1; v < users.size(); ++v) 
+		{
+			while (i < users[u]->ratings.size() && j < users[v]->ratings.size()) 
+			{
+				if (users[u]->ratings[i]->itemId < users[v]->ratings[j]->itemId)
+					i++;
+				else if (users[u]->ratings[j]->itemId < users[u]->ratings[i]->itemId)
+					j++;
+				else 
+				{
+					if(users[u]->ratings[j]->rating >= users[u]->avg)
+					{
+						w += users[u]->ratings[j]->rating;	
+					}
+					++i;
+					++j;
+				}
+			}
+			if (w > 0.0) 
+			{
+				cout << users[u] << " " << users[v] << " " << w;
+			}	
+		}
+	}
+}
+
 void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 		vector<vector<double> > &p, vector<vector<double> > &q,
 		vector<vector<double> > &y, vector<vector<double> > &z) {
@@ -1758,6 +1791,8 @@ int main(int argc, char **argv) {
 	k_count.resize(K_FOLD, 0);
 	read_data(filename);
 
+	graph_users();
+
 	switch (algorithm) {
 	case 0: {
 		generate_dataset();
@@ -1783,6 +1818,8 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 
+
 	kfold(algorithm);
+	graph_users();
 	return 0;
 }

@@ -138,6 +138,8 @@ vector<Review*> reviews;
 vector<User*> users;
 vector<Item*> items;
 
+map<unsigned int, vector<unsigned> > social_network;
+
 map<unsigned int, unsigned int> userIds; // Maps real user's ID to id
 map<unsigned int, unsigned int> itemIds; // Maps real item's ID to id
 
@@ -925,6 +927,99 @@ typedef struct {
 	double weight;
 } pair_similarity;
 
+void sgd_social_MF(const vector<Vote *> &trainingset,
+		map<unsigned int, vector<unsigned> > &user_neighbors,
+		vector<vector<double> > &p, vector<vector<double> > &q) {
+
+	const unsigned int SIZE = trainingset.size();
+	const unsigned int SOCIAL_SIZE = user_neighbors.size();
+
+	vector<unsigned int> training_indexes(SIZE, 0);
+	for (unsigned int i = 0; i < SIZE; ++i) {
+		training_indexes[i] = i;
+	}
+
+	vector<unsigned int> social_indexes;
+	for (map<unsigned int, vector<unsigned> >::iterator it2 =
+			user_neighbors.begin(); it2 != user_neighbors.end(); ++it2) {
+		unsigned u = it2->first;
+		social_indexes.push_back(u);
+	}
+
+	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
+		random_shuffle(training_indexes.begin(), training_indexes.end());
+
+		random_shuffle(social_indexes.begin(), social_indexes.end());
+
+		// prediction error
+#pragma omp parallel num_threads(NUM_THREADS)
+		{
+
+#pragma omp for
+			for (unsigned int i = 0; i < SIZE; ++i) {
+				Vote *v = trainingset[training_indexes[i]];
+
+				unsigned int u_id = v->userId;
+				unsigned int i_id = v->itemId;
+
+				double r = v->rating;
+				double err = (r - dot_product(p[u_id], q[i_id]));
+
+				if (MF_NORMALIZE) {
+					r = (v->rating - MIN_RATING) / DELTA_RATING;
+					double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
+					err = (r - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					p[u_id][k] += MF_ALPHA
+							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+					q[i_id][k] += MF_ALPHA
+							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				}
+			}
+		}
+
+#pragma omp parallel num_threads(NUM_THREADS)
+		{
+#pragma omp for
+			for (unsigned int a = 0; a < SOCIAL_SIZE; ++a) {
+
+				unsigned u = social_indexes[a];
+				unsigned n_neigh_u = user_neighbors[u].size();
+
+				vector<double> sum_neighbors(MF_NUM_FACTORS, 0.0);
+				vector<double> sum_neighbors2(MF_NUM_FACTORS, 0.0);
+
+				for (unsigned i = 0; i < n_neigh_u; ++i) {
+					unsigned v = user_neighbors[u][i];
+					unsigned n_neigh_v = user_neighbors[v].size();
+
+					for (unsigned f = 0; f < MF_NUM_FACTORS; ++f) {
+						sum_neighbors[f] += p[v][f];
+
+						double aux = p[v][f];
+						for (unsigned j = 0; j < n_neigh_v; ++j) {
+							unsigned x = user_neighbors[v][j];
+							aux -= p[x][f] / n_neigh_v;
+						}
+						aux = aux / n_neigh_v;
+
+						sum_neighbors2[f] += aux;
+
+					}
+
+				}
+				for (unsigned f = 0; f < MF_NUM_FACTORS; ++f) {
+					p[u][f] += MF_ALPHA
+							* (p[u][f] - sum_neighbors[f] / n_neigh_u
+									- sum_neighbors2[f]);
+				}
+			}
+		}
+	}
+}
+
 void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 		vector<vector<double> > &q) {
 
@@ -1389,6 +1484,30 @@ void run_matrix_factorization(vector<TestItem> &test,
 		sgd_smf_asymmetric(trainingset, p, q, y, z);
 		break;
 	}
+	case 6: {
+
+		map<unsigned int, vector<unsigned> > user_neighbors;
+
+		for (unsigned int u = 0; u < users.size(); ++u) {
+			if (rUserIds.find(u) != rUserIds.end()) {
+				unsigned idx = rUserIds[u];
+				vector<unsigned> u_neigh;
+
+				if (social_network.find(idx) != social_network.end()) {
+					for (unsigned j = 0; j < social_network[idx].size(); ++j) {
+						unsigned idx2 = social_network[idx][j];
+						if (userIds.find(idx2) != userIds.end()) {
+							u_neigh.push_back(userIds[idx2]);
+						}
+					}
+				}
+
+				if (u_neigh.size() > 0) {
+					user_neighbors[u] = u_neigh;
+				}
+			}
+		}
+	}
 	}
 
 	char buffer[250];
@@ -1480,6 +1599,35 @@ void generate_dataset() {
 		test_f.close();
 	}
 
+}
+
+void read_social(const char *filename) {
+	ifstream file(filename);
+	string line;
+	map<unsigned int, vector<unsigned> >::iterator it;
+
+	unsigned int userId;
+	unsigned int itemId;
+	float rating;
+
+	getline(file, line); // reading header
+
+	while (getline(file, line)) {
+		stringstream ss(line);
+		string tok;
+
+		getline(ss, tok, DELIM);
+		userId = atoi(tok.c_str());
+
+		getline(ss, tok, DELIM);
+		itemId = atoi(tok.c_str());
+
+		if (social_network.find(userId) == social_network.end()) {
+			social_network[userId] = vector<unsigned>();
+
+		}
+		social_network[userId].push_back(itemId);
+	}
 }
 
 void read_data(const char* filename) {

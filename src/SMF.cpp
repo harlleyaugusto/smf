@@ -1445,6 +1445,34 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 	}
 }
 
+void read_social(const char *filename) {
+	ifstream file(filename);
+	string line;
+
+	unsigned int userId;
+	unsigned int itemId;
+	float rating;
+
+	getline(file, line); // reading header
+
+	while (getline(file, line)) {
+		stringstream ss(line);
+		string tok;
+
+		getline(ss, tok, DELIM);
+		userId = atoi(tok.c_str());
+
+		getline(ss, tok, DELIM);
+		itemId = atoi(tok.c_str());
+
+		if (social_network.find(userId) == social_network.end()) {
+			social_network[userId] = vector<unsigned>();
+
+		}
+		social_network[userId].push_back(itemId);
+	}
+}
+
 void run_matrix_factorization(vector<TestItem> &test,
 		vector<Vote *> &trainingset, const unsigned int fold) {
 
@@ -1485,9 +1513,11 @@ void run_matrix_factorization(vector<TestItem> &test,
 		break;
 	}
 	case 6: {
+		read_social("sn.csv");
 
 		map<unsigned int, vector<unsigned> > user_neighbors;
 
+		// itera por cada usuario do treino e monta lista de vizinhanca de usuarios do treino
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			if (rUserIds.find(u) != rUserIds.end()) {
 				unsigned idx = rUserIds[u];
@@ -1507,6 +1537,8 @@ void run_matrix_factorization(vector<TestItem> &test,
 				}
 			}
 		}
+
+		sgd_social_MF(trainingset, user_neighbors, p, q);
 	}
 	}
 
@@ -1601,34 +1633,7 @@ void generate_dataset() {
 
 }
 
-void read_social(const char *filename) {
-	ifstream file(filename);
-	string line;
-	map<unsigned int, vector<unsigned> >::iterator it;
 
-	unsigned int userId;
-	unsigned int itemId;
-	float rating;
-
-	getline(file, line); // reading header
-
-	while (getline(file, line)) {
-		stringstream ss(line);
-		string tok;
-
-		getline(ss, tok, DELIM);
-		userId = atoi(tok.c_str());
-
-		getline(ss, tok, DELIM);
-		itemId = atoi(tok.c_str());
-
-		if (social_network.find(userId) == social_network.end()) {
-			social_network[userId] = vector<unsigned>();
-
-		}
-		social_network[userId].push_back(itemId);
-	}
-}
 
 void read_data(const char* filename) {
 	Gen generator;

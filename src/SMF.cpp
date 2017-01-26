@@ -943,8 +943,10 @@ void sgd_social_MF(const vector<Vote *> &trainingset,
 	for (map<unsigned int, vector<unsigned> >::iterator it2 =
 			user_neighbors.begin(); it2 != user_neighbors.end(); ++it2) {
 		unsigned u = it2->first;
+//		cout << u << " " << it2->second.size() << endl;
 		social_indexes.push_back(u);
 	}
+//	cin.get();
 
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
 		random_shuffle(training_indexes.begin(), training_indexes.end());
@@ -1006,12 +1008,11 @@ void sgd_social_MF(const vector<Vote *> &trainingset,
 						aux = aux / n_neigh_v;
 
 						sum_neighbors2[f] += aux;
-
 					}
-
 				}
+
 				for (unsigned f = 0; f < MF_NUM_FACTORS; ++f) {
-					p[u][f] += MF_ALPHA
+					p[u][f] += -MF_ALPHA
 							* (p[u][f] - sum_neighbors[f] / n_neigh_u
 									- sum_neighbors2[f]);
 				}
@@ -1190,6 +1191,457 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 						q[u][k] += MF_ALPHA * (w * err * q[v][k]);
 						q[v][k] += MF_ALPHA * (w * err * q[u][k]);
+					}
+				}
+			}
+		}
+	}
+}
+
+void sgd_smf_social_similarity(const vector<Vote *> &trainingset,
+		vector<vector<double> > &p, vector<vector<double> > &q,
+		map<unsigned int, vector<unsigned> > user_neighbors) {
+
+	const unsigned int SIZE = trainingset.size();
+
+	vector<unsigned int> training_indexes(SIZE, 0);
+	for (unsigned int i = 0; i < SIZE; ++i) {
+		training_indexes[i] = i;
+	}
+
+	double threshold = 0.0;
+	vector<pair_similarity> neighborhood_user;
+	vector<unsigned int> pair_indexes_user;
+
+// calcula a similaridade dos usuarios
+	set<pair<unsigned, unsigned>> pairs;
+
+	for (map<unsigned int, vector<unsigned> >::iterator it2 =
+			user_neighbors.begin(); it2 != user_neighbors.end(); ++it2) {
+		unsigned u = it2->first;
+
+		vector<unsigned> neigh = it2->second;
+
+		for (unsigned j = 0; j < it2->second.size(); ++j) {
+			unsigned v = it2->second[j];
+
+			if (v > u) {
+				unsigned aux = v;
+				v = u;
+				u = aux;
+			}
+
+			pairs.insert(make_pair(u, v));
+		}
+	}
+
+	int count = 0;
+	for (set<pair<unsigned, unsigned>>::iterator it = pairs.begin();
+			it != pairs.end(); ++it) {
+		unsigned u = it->first;
+		unsigned v = it->second;
+
+		double value = 0;
+
+		switch (MF_SIMILARITY_USER) {
+		case LIANG_SIMILARITY:
+			value = get_liang_user_similarity(u, v);
+			break;
+		default:
+			value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
+			break;
+		}
+
+		if (abs(value) > threshold) {
+			pair_similarity p_sim;
+			p_sim.u = u;
+			p_sim.v = v;
+			p_sim.s = value;
+			//pair.weight = calc_similarity_user(u, v, INTERSECTION) + 1;
+
+			p_sim.weight = 1;
+
+			neighborhood_user.push_back(p_sim);
+			pair_indexes_user.push_back(count++);
+		}
+	}
+
+	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
+		random_shuffle(training_indexes.begin(), training_indexes.end());
+
+#pragma omp parallel num_threads(NUM_THREADS)
+		{
+
+#pragma omp for
+
+			for (unsigned int i = 0; i < SIZE; ++i) {
+				Vote *v = trainingset[training_indexes[i]];
+
+				unsigned int u_id = v->userId;
+				unsigned int i_id = v->itemId;
+
+				double r = v->rating;
+				double err = (r - dot_product(p[u_id], q[i_id]));
+
+				if (MF_NORMALIZE) {
+					r = (v->rating - MIN_RATING) / DELTA_RATING;
+					double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
+					err = (r - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					p[u_id][k] += MF_ALPHA
+							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+					q[i_id][k] += MF_ALPHA
+							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				}
+			}
+		}
+
+		if (MF_SIMILARITY_USER) {
+			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
+
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
+
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
+
+					unsigned int idx = pair_indexes_user[i];
+
+					const unsigned int u = neighborhood_user[idx].u;
+					const unsigned int v = neighborhood_user[idx].v;
+					const double s = neighborhood_user[idx].s;
+					const double w = neighborhood_user[idx].weight;
+
+					double sig_p = dot_product(p[u], p[v]);
+					double err = (s - sig_p); // s eh similaridade sig_p produdto escalar pu pv
+					if (MF_NORMALIZE) {
+						sig_p = sigmoid(dot_product(p[u], p[v]));
+						err = (s - sig_p) * sig_p * (1 - sig_p);
+					}
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						p[u][k] += MF_ALPHA * (w * err * p[v][k]);
+						p[v][k] += MF_ALPHA * (w * err * p[u][k]);
+					}
+				}
+			}
+		}
+	}
+}
+
+void als_smf_new_model(const vector<Vote *> &trainingset,
+		vector<vector<double> > &p, vector<vector<double> > &q) {
+
+	double threshold = 0.0;
+
+	vector<vector<pair_similarity*>> neighborhood_user(users.size());
+
+	vector<vector<pair_similarity*>> neighborhood_item(items.size());
+
+// calcula a similaridade dos usuarios
+	if (MF_SIMILARITY_USER) {
+
+		for (unsigned int u = 0; u < users.size(); ++u) {
+			for (unsigned v = u + 1; v < users.size(); ++v) {
+				double value = 0;
+
+				switch (MF_SIMILARITY_USER) {
+				case LIANG_SIMILARITY:
+					value = get_liang_user_similarity(u, v);
+					break;
+				default:
+					value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
+					break;
+				}
+
+				if (abs(value) > threshold) {
+					pair_similarity *pair = new pair_similarity();
+					pair->u = u;
+					pair->v = v;
+					pair->s = value;
+					//pair.weight = calc_similarity_user(u, v, INTERSECTION) + 1;
+					pair->weight = 1;
+					neighborhood_user[u].push_back(pair);
+					neighborhood_user[v].push_back(pair);
+				}
+			}
+		}
+	}
+
+//calcula a similaridade dos itens
+	if (MF_SIMILARITY_ITEM) {
+		for (unsigned int u = 0; u < items.size(); ++u) {
+			for (unsigned v = u + 1; v < items.size(); ++v) {
+
+				double value = 0;
+
+				switch (MF_SIMILARITY_ITEM) {
+				case LIANG_SIMILARITY:
+					value = get_liang_item_similarity(u, v);
+					break;
+				default:
+					value = calc_similarity_item(u, v, MF_SIMILARITY_ITEM);
+					break;
+				}
+
+				if (abs(value) > threshold) {
+					pair_similarity *pair = new pair_similarity();
+					pair->u = u;
+					pair->v = v;
+					pair->s = value;
+					//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
+					pair->weight = 1;
+
+					neighborhood_item[u].push_back(pair);
+					neighborhood_item[v].push_back(pair);
+				}
+			}
+		}
+	}
+
+	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
+
+		for (unsigned a = 0; a < users.size(); ++a) {
+
+			User *u = users[a];
+
+			vector<double> num(MF_NUM_FACTORS, 0.0);
+			vector<double> den(MF_NUM_FACTORS, 0.0);
+
+			for (unsigned j = 0; j < u->ratings.size(); ++j) {
+
+				unsigned i = u->ratings[j]->itemId;
+
+				for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+					num[k] += (u->ratings[j]->rating
+							- dot_product(p[u->id], q[i])
+							+ p[u->id][k] * q[i][k]) * q[i][k];
+
+					den[k] += q[i][k] * q[i][k] + MF_LAMBDA;
+				}
+			}
+
+			double sim_sum = 0;
+			if (MF_SIMILARITY_USER) {
+
+				for (unsigned b = 0; b < neighborhood_user[u->id].size(); ++b) {
+					pair_similarity *p_sim = neighborhood_user[u->id][b];
+
+					unsigned target = u->id == p_sim->u ? p_sim->v : p_sim->u;
+					sim_sum += p_sim->s;
+
+					for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+						num[k] += p_sim->s * p[target][k];
+					}
+				}
+			}
+
+			for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+				p[u->id][k] = num[k] / (den[k] + sim_sum);
+			}
+		}
+
+		for (unsigned a = 0; a < items.size(); ++a) {
+			Item *i = items[a];
+
+			vector<double> num(MF_NUM_FACTORS, 0.0);
+			vector<double> den(MF_NUM_FACTORS, 0.0);
+
+			for (unsigned j = 0; j < i->ratings.size(); ++j) {
+				unsigned u = i->ratings[j]->userId;
+
+				for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+					num[k] += (i->ratings[j]->rating
+							- dot_product(p[u], q[i->id])
+							+ p[u][k] * q[i->id][k]) * p[u][k];
+
+					den[k] += p[u][k] * q[u][k] + MF_LAMBDA;
+				}
+			}
+
+			double sim_sum = 0;
+			if (MF_SIMILARITY_ITEM) {
+
+				for (unsigned b = 0; b < neighborhood_item[i->id].size(); ++b) {
+					pair_similarity *p_sim = neighborhood_item[i->id][b];
+
+					unsigned target = i->id == p_sim->u ? p_sim->v : p_sim->u;
+					sim_sum += p_sim->s;
+
+					for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+						num[k] += p_sim->s * q[target][k];
+					}
+				}
+			}
+
+			for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+				q[i->id][k] = num[k] / (den[k] + sim_sum);
+			}
+		}
+	}
+
+}
+
+void sgd_smf_new_model(const vector<Vote *> &trainingset,
+		vector<vector<double> > &p, vector<vector<double> > &q) {
+
+	const unsigned int SIZE = trainingset.size();
+
+	vector<unsigned int> training_indexes(SIZE, 0);
+	for (unsigned int i = 0; i < SIZE; ++i) {
+		training_indexes[i] = i;
+	}
+
+	double threshold = 0.0;
+	vector<pair_similarity> neighborhood_user;
+	vector<unsigned int> pair_indexes_user;
+
+	vector<pair_similarity> neighborhood_item;
+	vector<unsigned int> pair_indexes_item;
+
+// calcula a similaridade dos usuarios
+	if (MF_SIMILARITY_USER) {
+
+		int count = 0;
+		for (unsigned int u = 0; u < users.size(); ++u) {
+			for (unsigned v = u + 1; v < users.size(); ++v) {
+				double value = 0;
+
+				switch (MF_SIMILARITY_USER) {
+				case LIANG_SIMILARITY:
+					value = get_liang_user_similarity(u, v);
+					break;
+				default:
+					value = calc_similarity_user(u, v, MF_SIMILARITY_USER);
+					break;
+				}
+
+				if (abs(value) > threshold) {
+					pair_similarity pair;
+					pair.u = u;
+					pair.v = v;
+					pair.s = value;
+					//pair.weight = calc_similarity_user(u, v, INTERSECTION) + 1;
+
+					pair.weight = 1;
+
+					neighborhood_user.push_back(pair);
+					pair_indexes_user.push_back(count++);
+				}
+			}
+		}
+	}
+
+//calcula a similaridade dos itens
+	if (MF_SIMILARITY_ITEM) {
+		int count = 0;
+		for (unsigned int u = 0; u < items.size(); ++u) {
+			for (unsigned v = u + 1; v < items.size(); ++v) {
+
+				double value = 0;
+
+				switch (MF_SIMILARITY_ITEM) {
+				case LIANG_SIMILARITY:
+					value = get_liang_item_similarity(u, v);
+					break;
+				default:
+					value = calc_similarity_item(u, v, MF_SIMILARITY_ITEM);
+					break;
+				}
+
+				if (abs(value) > threshold) {
+					pair_similarity pair;
+					pair.u = u;
+					pair.v = v;
+					pair.s = value;
+					//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
+					pair.weight = 1;
+
+					neighborhood_item.push_back(pair);
+					pair_indexes_item.push_back(count++);
+				}
+			}
+		}
+	}
+
+	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
+		random_shuffle(training_indexes.begin(), training_indexes.end());
+
+#pragma omp parallel num_threads(NUM_THREADS)
+		{
+
+#pragma omp for
+
+			for (unsigned int i = 0; i < SIZE; ++i) {
+				Vote *v = trainingset[training_indexes[i]];
+
+				unsigned int u_id = v->userId;
+				unsigned int i_id = v->itemId;
+
+				double r = v->rating;
+				double err = (r - dot_product(p[u_id], q[i_id]));
+
+				if (MF_NORMALIZE) {
+					r = (v->rating - MIN_RATING) / DELTA_RATING;
+					double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
+					err = (r - sig_p) * sig_p * (1 - sig_p);
+				}
+
+				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					p[u_id][k] += MF_ALPHA
+							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+					q[i_id][k] += MF_ALPHA
+							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+				}
+			}
+		}
+
+		if (MF_SIMILARITY_USER) {
+			random_shuffle(pair_indexes_user.begin(), pair_indexes_user.end());
+
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
+
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_user.size(); ++i) {
+
+					unsigned int idx = pair_indexes_user[i];
+
+					const unsigned int u = neighborhood_user[idx].u;
+					const unsigned int v = neighborhood_user[idx].v;
+					const double s = neighborhood_user[idx].s;
+					const double w = neighborhood_user[idx].weight;
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						double step = MF_ALPHA * s * (p[u][k] - p[v][k]);
+						p[u][k] -= step;
+						p[v][k] -= -step;
+					}
+				}
+			}
+		}
+
+		if (MF_SIMILARITY_ITEM) {
+			random_shuffle(pair_indexes_item.begin(), pair_indexes_item.end());
+
+#pragma omp parallel num_threads(NUM_THREADS)
+			{
+
+#pragma omp for
+				for (unsigned int i = 0; i < pair_indexes_item.size(); ++i) {
+
+					unsigned int idx = pair_indexes_item[i];
+					const unsigned int u = neighborhood_item[idx].u;
+					const unsigned int v = neighborhood_item[idx].v;
+					const double s = neighborhood_item[idx].s;
+					const double w = neighborhood_item[idx].weight;
+
+					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						double step = MF_ALPHA * s * (q[u][k] - q[v][k]);
+						q[u][k] -= step;
+						q[v][k] -= -step;
 					}
 				}
 			}
@@ -1504,6 +1956,10 @@ void run_matrix_factorization(vector<TestItem> &test,
 
 	string output_file;
 	switch (MF_ALGORITHM) {
+	case 3: {
+		als_smf_new_model(trainingset, p, q);
+		break;
+	}
 	case 4: {
 		sgd_smf(trainingset, p, q);
 		break;
@@ -1539,6 +1995,40 @@ void run_matrix_factorization(vector<TestItem> &test,
 		}
 
 		sgd_social_MF(trainingset, user_neighbors, p, q);
+		break;
+	}
+	case 7: {
+		sgd_smf_new_model(trainingset, p, q);
+		break;
+	}
+	case 8: {
+		read_social("sn.csv");
+
+		map<unsigned int, vector<unsigned> > user_neighbors;
+
+		// itera por cada usuario do treino e monta lista de vizinhanca de usuarios do treino
+		for (unsigned int u = 0; u < users.size(); ++u) {
+			if (rUserIds.find(u) != rUserIds.end()) {
+				unsigned idx = rUserIds[u];
+				vector<unsigned> u_neigh;
+
+				if (social_network.find(idx) != social_network.end()) {
+					for (unsigned j = 0; j < social_network[idx].size(); ++j) {
+						unsigned idx2 = social_network[idx][j];
+						if (userIds.find(idx2) != userIds.end()) {
+							u_neigh.push_back(userIds[idx2]);
+						}
+					}
+				}
+
+				if (u_neigh.size() > 0) {
+					user_neighbors[u] = u_neigh;
+				}
+			}
+		}
+
+		sgd_smf_social_similarity(trainingset, p, q, user_neighbors);
+		break;
 	}
 	}
 
@@ -1632,8 +2122,6 @@ void generate_dataset() {
 	}
 
 }
-
-
 
 void read_data(const char* filename) {
 	Gen generator;

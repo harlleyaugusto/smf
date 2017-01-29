@@ -1106,6 +1106,8 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
 		random_shuffle(training_indexes.begin(), training_indexes.end());
 
+		double monitor_err = 0;
+
 #pragma omp parallel num_threads(NUM_THREADS)
 		{
 
@@ -1120,6 +1122,8 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 				double r = v->rating;
 				double err = (r - dot_product(p[u_id], q[i_id]));
 
+//				monitor_err += err;
+
 				if (MF_NORMALIZE) {
 					r = (v->rating - MIN_RATING) / DELTA_RATING;
 					double sig_p = sigmoid(dot_product(p[u_id], q[i_id]));
@@ -1127,10 +1131,11 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 				}
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					double temp = p[u_id][k];
 					p[u_id][k] += MF_ALPHA
 							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
 					q[i_id][k] += MF_ALPHA
-							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+							* (err * temp - MF_LAMBDA * q[i_id][k]);
 				}
 			}
 		}
@@ -1159,8 +1164,10 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 					}
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+
+						double temp = p[u][k];
 						p[u][k] += MF_ALPHA * (w * err * p[v][k]);
-						p[v][k] += MF_ALPHA * (w * err * p[u][k]);
+						p[v][k] += MF_ALPHA * (w * err * temp);
 					}
 				}
 			}
@@ -1189,12 +1196,18 @@ void sgd_smf(const vector<Vote *> &trainingset, vector<vector<double> > &p,
 					}
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						double temp = q[u][k];
 						q[u][k] += MF_ALPHA * (w * err * q[v][k]);
-						q[v][k] += MF_ALPHA * (w * err * q[u][k]);
+						q[v][k] += MF_ALPHA * (w * err * temp);
 					}
 				}
 			}
 		}
+//		cout << sqrt(monitor_err) << endl;
+//		for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+//			cout << p[0][k] << ",";
+//		}
+//		cout << endl;
 	}
 }
 
@@ -1290,10 +1303,11 @@ void sgd_smf_social_similarity(const vector<Vote *> &trainingset,
 				}
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					double temp = p[u_id][k];
 					p[u_id][k] += MF_ALPHA
 							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
 					q[i_id][k] += MF_ALPHA
-							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+							* (err * temp - MF_LAMBDA * q[i_id][k]);
 				}
 			}
 		}
@@ -1322,8 +1336,9 @@ void sgd_smf_social_similarity(const vector<Vote *> &trainingset,
 					}
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						double temp = p[u][k];
 						p[u][k] += MF_ALPHA * (w * err * p[v][k]);
-						p[v][k] += MF_ALPHA * (w * err * p[u][k]);
+						p[v][k] += MF_ALPHA * (w * err * temp);
 					}
 				}
 			}
@@ -1340,8 +1355,20 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 
 	vector<vector<pair_similarity*>> neighborhood_item(items.size());
 
+	unsigned monitor_user = 0;
+	{
+		unsigned max = users[monitor_user]->ratings.size();
+		for (unsigned u = 1; u < users.size(); ++u) {
+			if (users[u]->ratings.size() > max) {
+				monitor_user = u;
+				max = users[u]->ratings.size();
+			}
+		}
+	}
+
 // calcula a similaridade dos usuarios
 	if (MF_SIMILARITY_USER) {
+		unsigned count = 0;
 
 		for (unsigned int u = 0; u < users.size(); ++u) {
 			for (unsigned v = u + 1; v < users.size(); ++v) {
@@ -1365,6 +1392,7 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 					pair->weight = 1;
 					neighborhood_user[u].push_back(pair);
 					neighborhood_user[v].push_back(pair);
+					++count;
 				}
 			}
 		}
@@ -1372,6 +1400,7 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 
 //calcula a similaridade dos itens
 	if (MF_SIMILARITY_ITEM) {
+		unsigned count = 0;
 		for (unsigned int u = 0; u < items.size(); ++u) {
 			for (unsigned v = u + 1; v < items.size(); ++v) {
 
@@ -1396,33 +1425,47 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 
 					neighborhood_item[u].push_back(pair);
 					neighborhood_item[v].push_back(pair);
+
+					++count;
 				}
 			}
 		}
 	}
 
+	double previous = 0;
+	cout << "lambda: " << MF_LAMBDA << endl;
 	for (unsigned int it = 0; it < MF_NUM_ITERATIONS; ++it) {
+
+		cout << "it: " << it << endl;
+
+		double monitor_err = 0;
 
 		for (unsigned a = 0; a < users.size(); ++a) {
 
 			User *u = users[a];
 
 			vector<double> num(MF_NUM_FACTORS, 0.0);
-			vector<double> den(MF_NUM_FACTORS, 0.0);
+			vector<double> den(MF_NUM_FACTORS, MF_LAMBDA);
 
 			for (unsigned j = 0; j < u->ratings.size(); ++j) {
 
 				unsigned i = u->ratings[j]->itemId;
 
-				for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
-					num[k] += (u->ratings[j]->rating
-							- dot_product(p[u->id], q[i])
-							+ p[u->id][k] * q[i][k]) * q[i][k];
+				double dot = dot_product(p[u->id], q[i]);
+				double err = u->ratings[j]->rating - dot;
 
-					den[k] += q[i][k] * q[i][k] + MF_LAMBDA;
+				monitor_err += err * err;
+
+//				if (u->id == 0) {
+//					cout << err << "(" << u->ratings[j]->rating << "-" << dot
+//							<< "), ";
+//				}
+				for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+					num[k] += (err + p[u->id][k] * q[i][k]) * q[i][k];
+
+					den[k] += q[i][k] * q[i][k];
 				}
 			}
-
 			double sim_sum = 0;
 			if (MF_SIMILARITY_USER) {
 
@@ -1440,6 +1483,12 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 
 			for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
 				p[u->id][k] = num[k] / (den[k] + sim_sum);
+				if (u->id == 0) {
+					cout << p[u->id][k] << ",";
+				}
+			}
+			if (u->id == 0) {
+				cout << endl;
 			}
 		}
 
@@ -1447,7 +1496,7 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 			Item *i = items[a];
 
 			vector<double> num(MF_NUM_FACTORS, 0.0);
-			vector<double> den(MF_NUM_FACTORS, 0.0);
+			vector<double> den(MF_NUM_FACTORS, MF_LAMBDA);
 
 			for (unsigned j = 0; j < i->ratings.size(); ++j) {
 				unsigned u = i->ratings[j]->userId;
@@ -1457,7 +1506,7 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 							- dot_product(p[u], q[i->id])
 							+ p[u][k] * q[i->id][k]) * p[u][k];
 
-					den[k] += p[u][k] * q[u][k] + MF_LAMBDA;
+					den[k] += p[u][k] * p[u][k];
 				}
 			}
 
@@ -1476,12 +1525,19 @@ void als_smf_new_model(const vector<Vote *> &trainingset,
 				}
 			}
 
-			for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
-				q[i->id][k] = num[k] / (den[k] + sim_sum);
-			}
-		}
-	}
+//			for (unsigned k = 0; k < MF_NUM_FACTORS; ++k) {
+//				q[i->id][k] = num[k] / (den[k] + sim_sum);
+//				if (i->id == 0) {
+//					cout << q[i->id][k] << ",";
+//				}
+//			}
+//			if (i->id == 0) {
+//				cout << endl;
+//			}
 
+		}
+		cout << "err: " << monitor_err << endl;
+	}
 }
 
 void sgd_smf_new_model(const vector<Vote *> &trainingset,
@@ -1590,10 +1646,11 @@ void sgd_smf_new_model(const vector<Vote *> &trainingset,
 				}
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					double temp = p[u_id][k];
 					p[u_id][k] += MF_ALPHA
 							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
 					q[i_id][k] += MF_ALPHA
-							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+							* (err * temp - MF_LAMBDA * q[i_id][k]);
 				}
 			}
 		}
@@ -1744,7 +1801,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 					pair.u = u;
 					pair.v = v;
 					pair.s = value;
-					//pair.weight = calc_similarity_item(u, v, INTERSECTION) + 1;
 					pair.weight = 1;
 
 					switch (MF_SIMILARITY_ITEM) {
@@ -1820,10 +1876,11 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 				}
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+					double temp = p[u_id][k];
 					p[u_id][k] += MF_ALPHA
 							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
 					q[i_id][k] += MF_ALPHA
-							* (err * p[u_id][k] - MF_LAMBDA * q[i_id][k]);
+							* (err * temp - MF_LAMBDA * q[i_id][k]);
 				}
 			}
 		}
@@ -1856,9 +1913,10 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 					}
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						double temp = p[u][k];
 						p[u][k] += MF_ALPHA * (w * err * y[v][k]);
-						y[u][k] += MF_ALPHA
-								* (w * err * p[v][k] - MF_LAMBDA * y[u][k]);
+						y[v][k] += MF_ALPHA
+								* (w * err * temp - MF_LAMBDA * y[v][k]);
 					}
 				}
 			}
@@ -1887,9 +1945,10 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 					}
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
+						double temp = q[u][k];
 						q[u][k] += MF_ALPHA * (w * err * z[v][k]);
-						z[u][k] += MF_ALPHA
-								* (w * err * q[v][k] - MF_LAMBDA * z[u][k]);
+						z[v][k] += MF_ALPHA
+								* (w * err * temp - MF_LAMBDA * z[v][k]);
 					}
 				}
 			}

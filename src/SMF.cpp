@@ -1904,13 +1904,13 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 					double temp = p[u_id][k];
-//					p[u_id][k] += MF_ALPHA
-//							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
-//					q[i_id][k] += MF_ALPHA
-//							* (err * temp - MF_LAMBDA * q[i_id][k]);
+					p[u_id][k] += MF_ALPHA
+							* (err * q[i_id][k] - MF_LAMBDA * p[u_id][k]);
+					q[i_id][k] += MF_ALPHA
+							* (err * temp - MF_LAMBDA * q[i_id][k]);
 
-					p_gradient[u_id][k] += -err * q[i_id][k];
-					q_gradient[i_id][k] += -err * p[u_id][k];
+//					p_gradient[u_id][k] += -err * q[i_id][k];
+//					q_gradient[i_id][k] += -err * p[u_id][k];
 				}
 			}
 		}
@@ -1944,12 +1944,12 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 						double temp = p[u][k];
-//						p[u][k] += MF_ALPHA * (w * err * y[v][k]);
-//						y[v][k] += MF_ALPHA
-//								* (w * err * temp - MF_LAMBDA * y[v][k]);
+						p[u][k] += MF_ALPHA * (w * err * y[v][k]);
+						y[v][k] += MF_ALPHA
+								* (w * err * temp - MF_LAMBDA * y[v][k]);
 
-						p_gradient[u][k] += -err * y[v][k];
-						y_gradient[v][k] += -err * p[u][k];
+//						p_gradient[u][k] += -err * y[v][k];
+//						y_gradient[v][k] += -err * p[u][k];
 
 					}
 				}
@@ -1980,18 +1980,18 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 
 					for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 						double temp = q[u][k];
-//						q[u][k] += MF_ALPHA * (w * err * z[v][k]);
-//						z[v][k] += MF_ALPHA
-//								* (w * err * temp - MF_LAMBDA * z[v][k]);
+						q[u][k] += MF_ALPHA * (w * err * z[v][k]);
+						z[v][k] += MF_ALPHA
+								* (w * err * temp - MF_LAMBDA * z[v][k]);
 
-						q_gradient[u][k] += -err * z[v][k];
-						z_gradient[v][k] += -err * q[u][k];
+//						q_gradient[u][k] += -err * z[v][k];
+//						z_gradient[v][k] += -err * q[u][k];
 					}
 				}
 			}
 		}
 
-		{
+		if(false){
 			for (unsigned int i = 0; i < users.size(); ++i) {
 				for (unsigned int k = 0; k < MF_NUM_FACTORS; ++k) {
 					p[i][k] -= MF_ALPHA
@@ -2041,11 +2041,11 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 			}
 
 			global_error = sqrt(global_error / SIZE);
-//			cout << global_error << endl;
+			cout << global_error << endl;
 			double diff = global_error - previous;
-			if (abs(diff) < 0.001 || diff > 0) {
-				return;
-			}
+//			if (abs(diff) < 0.001 || diff > 0) {
+//				return;
+//			}
 			previous = global_error;
 		}
 	}
@@ -2539,6 +2539,7 @@ void kfold(char algorithm) {
 
 int main(int argc, char **argv) {
 	srand(0);
+
 
 	topN.push_back(5);
 	topN.push_back(10);

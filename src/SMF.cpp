@@ -2046,6 +2046,7 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 			if (abs(diff) < 0.001 || diff > 0) {
 				return;
 			}
+			previous = global_error;
 		}
 	}
 }

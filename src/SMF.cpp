@@ -2195,14 +2195,6 @@ void sgd_smf_asymmetric(const vector<Vote *> &trainingset,
 			}
 		}
 
-//			current_error = sqrt(current_error);
-//			double factor = current_error / previous_error;
-//			cout << it << ": " << current_error << " " << factor << endl;
-//			if (factor >= (1 - 1e-5)) {
-//				break;
-//			}
-//
-//			previous_error = current_error;
 
 		if (false) {
 			double global_error = 0;
